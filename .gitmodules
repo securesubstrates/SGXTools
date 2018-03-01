@@ -1,0 +1,3 @@
+[submodule "elf-edit"]
+	path = elf-edit
+	url = https://github.com/axelexic/elf-edit.git
