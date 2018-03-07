@@ -25,7 +25,7 @@ data SECS = SECS {
 data MiscSelect = MiscSelect {
   miscExInfo             :: Bool   -- Report information about page fault and general protection exception that occurred inside an enclave
   , miscReserved_bit1_32 :: Word32 -- Wasted space
-  } deriving (Eq)
+  } deriving (Eq, Show)
 
 data Attributes = Attributes {
   attrInit                :: Bool -- if the enclave has been initialized by EINIT
@@ -96,7 +96,8 @@ data PCMD = PCMD {
   }
 
 data SigStruct = SigStruct{
-  ssHeader1                :: SigStructHeader      -- 16 bytes. Signed
+  ssHeader1                :: SigStructHeader      -- 12 bytes. Signed
+  , ssIsDebug              :: Bool                 -- Is debug enclave
   , ssVendor               :: SigStructVendor      -- 4  bytes. Signed
   , ssBuildDate            :: SigStructDate        -- 4  bytes. Signed
   , ssHeader2              :: SigStructHeader      -- 16 bytes. Signed
@@ -117,7 +118,7 @@ data SigStruct = SigStruct{
   , ssReserved_byte1028_1039 :: L.ByteString       -- 12 bytes of zero. Not signed
   , ssQ1                     :: Integer            -- 384 bytes of Q1
   , ssQ2                     :: Integer            -- 284 bytes of Q2
-  }
+  }deriving(Show)
 
 
 type CSS = SigStruct
@@ -142,8 +143,8 @@ data EInitToken = EInitToken {
 
 
 data SigStructHeader = SSHeader{
-  ssHeaderValue :: Integer
-  }
+  fromInteger :: Integer
+}deriving(Show)
 
 ssHeaderVal1 :: SigStructHeader
 ssHeaderVal1 = SSHeader 0x06000000E10000000000010000000000
@@ -443,14 +444,14 @@ data EnclaveMetadata = EnclaveMetadata
   , metaDataDirectory  :: [DataDirectory]
   , metaPatchRegion    :: [PatchEntry]
   , metaLayoutRegion   :: [LayoutEntry]
-  }
+  }deriving(Show)
 
 
 data DataDirectory = DataDirectory
   {
     ddOffset :: !Word32
   , ddSize   :: !Word32
-  }
+  }deriving(Show)
 
 
 data PatchEntry = PatchEntry
@@ -459,7 +460,7 @@ data PatchEntry = PatchEntry
   , patchSource  :: !Word32
   , patchSize    :: !Word32
   , patchReserved :: !Word32
-  }
+  }deriving(Show)
 
 data LayoutIdentity =
   LAYOUT_ID_HEAP_MIN
@@ -620,7 +621,3 @@ instance Enum PagePermissionFlags where
   toEnum 0x2 = SI_FLAG_W
   toEnum 0x4 = SI_FLAG_W
   toEnum _   = undefined
-
-
-instance Show EnclaveMetadata where
-  show = undefined

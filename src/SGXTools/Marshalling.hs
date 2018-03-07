@@ -85,9 +85,22 @@ getCPUSVN = do
   by <- getLazyByteString 16
   return  CPUSVN { cpuSvnValue = by }
 
-
 putCPUSVN :: CPUSVN -> Put
 putCPUSVN (CPUSVN cpusvn) = put cpusvn
+
+getBigInteger_le :: Int -> Get Integer
+getBigInteger_le c | c <= 0    = return 0
+                   | otherwise = do
+                       w  <- fmap fromIntegral getWord8
+                       w' <- getBigInteger_le (c-1)
+                       return $! (w' `shiftL` 8) + w
+
+getBigInteger_be :: Int -> Get Integer
+getBigInteger_be c | c <= 0    = return 0
+                   | otherwise = do
+                       w  <- fmap fromIntegral getWord8
+                       w' <- getBigInteger_be (c-1)
+                       return $! (w `shiftL` ((c-1)*8)) + w'
 
 
 getEInitToken :: Get EInitToken
@@ -182,8 +195,70 @@ validMetaVersion = [
   ]
 
 
+getSGXDate :: Get SigStructDate
+getSGXDate = do
+  _ <- getWord32be
+  return $! SSDate
+    {
+      ssYear = Year 0 0 0 0
+    , ssMonth = Jan
+    , ssDay   = Day 1
+    }
+
+sgxKeySize :: Int
+sgxKeySize = 384
+
 getSigStruct :: Get SigStruct
-getSigStruct = undefined
+getSigStruct = do
+  ss1        <- getBigInteger_be 12
+  isDebug    <- getWord32le
+  vendor     <- getWord32le
+  date       <- getSGXDate
+  ss2        <- getBigInteger_be 16
+  hwver      <- getWord32le
+  skip 84
+  modulus    <- getBigInteger_le sgxKeySize
+  expo       <- getWord32le
+  sig        <- getBigInteger_le sgxKeySize
+  misc_sel   <- getMiscSelect
+  misc_mask  <- getMiscSelect
+  skip 20
+  ssAttr     <- getAttributes
+  ssAttrMask <- getAttributes
+  ehash      <- getByteString 32
+  skip 32
+  isvPrdId   <- getWord16le
+  isvSvn     <- getWord16le
+  skip 12
+  q1         <- getBigInteger_le sgxKeySize
+  q2         <- getBigInteger_le sgxKeySize
+
+  return $! SigStruct {
+    ssHeader1     = SSHeader ss1
+    , ssIsDebug   = isDebug == 0x80000000
+    , ssVendor    = if vendor == 0
+                    then SSVendorOther
+                    else SSVendorIntel
+    , ssBuildDate              = date
+    , ssHeader2                = SSHeader ss2
+    , ssSwDefined              = hwver
+    , ssReserved_byte44_127    = L.empty
+    , ssModulus                = modulus
+    , ssExponent               = expo
+    , ssSignature              = sig
+    , ssMiscSelect             = misc_sel
+    , ssMiscMask               = misc_mask
+    , ssReserved_byte908_927   = L.empty
+    , ssAttributes             = ssAttr
+    , ssAttributesMask         = ssAttrMask
+    , ssEnclaveHash            = L.fromChunks [ehash]
+    , ssReserved_byte992_1023  = L.empty
+    , ssIsvProdId              = isvPrdId
+    , ssIsvSvn                 = isvSvn
+    , ssReserved_byte1028_1039 = L.empty
+    , ssQ1                     = q1
+    , ssQ2                     = q2
+    }
 
 putMetadata :: EnclaveMetadata -> Put
 putMetadata = undefined
@@ -192,7 +267,8 @@ getMetadata :: Get EnclaveMetadata
 getMetadata = do
   magic       <- getWord64le
   unless (metadataMagic == magic) $
-    fail $ "Invalid metadata magic " ++ (printf "0x%.16x" magic)
+    fail $ "Invalid metadata magic " ++
+    (printf "0x%.16x" magic)
   ver         <- getWord64le
   unless (ver `elem` validMetaVersion) $
     fail $ "Unsupported metadata version " ++
