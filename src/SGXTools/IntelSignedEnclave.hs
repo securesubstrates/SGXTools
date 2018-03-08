@@ -26,12 +26,40 @@ getEnclaveMetadataRaw e = case allNotes e of
         [note] -> Right $ noteDesc note
         _      -> Left (SGXELFError "Too few or too many sgx_metadata sections")
 
+
+bsSlice :: (Integral a) => a -- offset
+        -> a -- Size
+        -> B.ByteString
+        -> B.ByteString
+bsSlice off sz = (B.take (fromIntegral sz)) . (B.drop (fromIntegral off))
+
+parseLayoutAndPatches :: B.ByteString     -- raw metadata from start
+                      -> EnclaveMetadata  -- parsed metadata
+                      -> Either SGXELFError EnclaveMetadata
+parseLayoutAndPatches bs md = do
+  let patchDD  = (metaDataDirectory md) !! ddPatchIndex
+  let layoutDD = (metaDataDirectory md) !! ddLayoutIndex
+  let patchSlice = L.fromChunks [bsSlice (ddOffset patchDD) (ddSize patchDD) bs]
+  let layoutSlice = L.fromChunks [bsSlice (ddOffset layoutDD) (ddSize layoutDD) bs]
+  p <- case runGetOrFail getPatches patchSlice of
+         Left(_,_, s)    -> Left (SGXELFError $
+                                  "Failed to parse Patches: " ++s )
+         Right (_,_, m) -> Right m
+
+  l <- case runGetOrFail getLayouts layoutSlice of
+         Left(_,_, s)   -> Left (SGXELFError $
+                                  "Failed to parse Layout: " ++s )
+         Right (_,_, m) -> Right m
+  return $! md { metaPatches = p, metaLayouts = l }
+
+
 process :: (Elf w) -> Either SGXELFError EnclaveMetadata
 process elfFile = do
   bytes <- getEnclaveMetadataRaw elfFile
-  case runGetOrFail getMetadata (L.fromChunks [bytes]) of
-    Left  (_, _, s) -> Left (SGXELFError s)
-    Right (_, _, m) -> Right m
+  partial <- case runGetOrFail getMetadata (L.fromChunks [bytes]) of
+               Left  (_, _, s) -> Left (SGXELFError s)
+               Right (_, _, m) -> Right m
+  parseLayoutAndPatches bytes partial
 
 getEnclaveMetadata :: B.ByteString -> Either SGXELFError EnclaveMetadata
 getEnclaveMetadata bs =

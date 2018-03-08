@@ -3,7 +3,9 @@ module SGXTools.Types where
 import Text.Printf
 import qualified Data.ByteString.Lazy as L
 import           Data.Word (Word64, Word32, Word16, Word8)
-import           Data.Bits ((.&.), (.|.), shiftL, shiftR)
+import           Data.Bits ((.&.), (.|.),
+                            shiftL, shiftR,
+                            Bits(..))
 import           SGXTools.Utils
 
 data SECS = SECS {
@@ -97,7 +99,6 @@ data PCMD = PCMD {
 
 data SigStruct = SigStruct{
   ssHeader1                :: SigStructHeader      -- 12 bytes. Signed
-  , ssIsDebug              :: Bool                 -- Is debug enclave
   , ssVendor               :: SigStructVendor      -- 4  bytes. Signed
   , ssBuildDate            :: SigStructDate        -- 4  bytes. Signed
   , ssHeader2              :: SigStructHeader      -- 16 bytes. Signed
@@ -143,7 +144,7 @@ data EInitToken = EInitToken {
 
 
 data SigStructHeader = SSHeader{
-  fromInteger :: Integer
+  fromSSHeader :: Integer
 }deriving(Show)
 
 ssHeaderVal1 :: SigStructHeader
@@ -440,10 +441,11 @@ data EnclaveMetadata = EnclaveMetadata
   , metaDesiredMiscSel :: !Word32
   , metaTCSMinPool     :: !Word32
   , metaEnclaveSize    :: !Word64
+  , metaAttributes     :: Attributes
   , metaEnclaveCSS     :: SigStruct
   , metaDataDirectory  :: [DataDirectory]
-  , metaPatchRegion    :: [PatchEntry]
-  , metaLayoutRegion   :: [LayoutEntry]
+  , metaPatches        :: [PatchEntry]
+  , metaLayouts        :: [LayoutEntry]
   }deriving(Show)
 
 
@@ -459,7 +461,6 @@ data PatchEntry = PatchEntry
     patchDest    :: !Word64
   , patchSource  :: !Word32
   , patchSize    :: !Word32
-  , patchReserved :: !Word32
   }deriving(Show)
 
 data LayoutIdentity =
@@ -498,7 +499,7 @@ data LayoutOperations =
 data LayoutEntry =
   LayoutEntry {
     lentryID        :: !LayoutIdentity
-  , lentryOps       :: !LayoutOperations
+  , lentryOps       :: [LayoutOperations]
   , lentryPageCount :: !Word32 -- map size in page
   , lentryRVA       :: !Word64 -- map offset relative
                                -- to enclave base
@@ -509,30 +510,35 @@ data LayoutEntry =
   , lentryContentOff:: !Word32 -- Offset of initial
                                -- content relative
                                -- to metadata
-  , lentryPermFlags :: !PagePermissionFlags
+  , lentryPermFlags :: [PagePermissionFlags]
   } | LayoutGroup {
     lgrpID          :: !LayoutIdentity
   , lgrpEntryCount  :: !Word16
   , lgrpLoadTimes   :: !Word32
   , lgrpLoadStep    :: !Word64
-  , lgrpReserved    :: !Word32
+  , lgrpReserved    :: [Word32]
   }
   deriving(Show)
 
 
-extractLayoutOpts :: Word16 -> [LayoutOperations]
-extractLayoutOpts w = extractOpts w 0 [] where
-  extractOpts :: Word16 -> Int -> [LayoutOperations] ->
-                 [LayoutOperations]
-  extractOpts w' n ys | w' == 0 = ys
-                      | False   =
+
+extractFlags :: (Integral a, Enum b, Bits a) => a
+             -> [b]
+extractFlags w = extractOpts w 0 [] where
+  extractOpts :: (Integral a, Enum b, Bits a) => a
+              -> Int
+              -> [b]
+              -> [b]
+  extractOpts w' n ys | w' `seq` w' == 0     = ys
+                      | otherwise   =
                           let isSet = w .&. 0x1 == 0x1
                               flag  = toEnum n
-                              w''    = w' `shiftR` 1
+                              w''   = w' `shiftR` 1
                           in if isSet
                           then extractOpts w'' (n+1)
                                               (flag:ys)
                           else extractOpts w'' (n+1) ys
+
 
 instance Enum LayoutOperations where
   toEnum 0 = E_ADD
@@ -600,24 +606,52 @@ groupFlag = 1 `shiftL` 12
 groupId :: Int -> Int
 groupId n = n .|. groupFlag
 
+isGroupId16 :: Word16 -> Bool
+isGroupId16 w = (groupFlag .&. (fromIntegral w)) /= 0
+
 isGroupId :: LayoutIdentity -> Bool
 isGroupId e = groupFlag .&. fromEnum e /= 0
 
 data PagePermissionFlags =
-  SI_FLAG_NONE
-  | SI_FLAG_R
+  SI_FLAG_R
   | SI_FLAG_W
   | SI_FLAG_X
+  | SI_FLAG_PENDING
+  | SI_FLAG_MODIFIED
+  | SI_FLAG_PR
+  | SI_FLAG_TCS
+  | SI_FLAG_REG
+  | SI_FLAG_TRIM
+  | SI_FLAG_06
+  | SI_FLAG_07
+  | SI_FLAG_08
   deriving(Show, Eq)
 
-instance Enum PagePermissionFlags where
-  fromEnum SI_FLAG_NONE = 0x0
-  fromEnum SI_FLAG_R    = 0x1
-  fromEnum SI_FLAG_W    = 0x2
-  fromEnum SI_FLAG_X    = 0x4
 
-  toEnum 0x0 = SI_FLAG_NONE
-  toEnum 0x1 = SI_FLAG_R
-  toEnum 0x2 = SI_FLAG_W
-  toEnum 0x4 = SI_FLAG_W
-  toEnum _   = undefined
+instance Enum PagePermissionFlags where
+  fromEnum SI_FLAG_R        = 0  -- These are bit positions
+  fromEnum SI_FLAG_W        = 1
+  fromEnum SI_FLAG_X        = 2
+  fromEnum SI_FLAG_PENDING  = 3
+  fromEnum SI_FLAG_MODIFIED = 4
+  fromEnum SI_FLAG_PR       = 5
+  fromEnum SI_FLAG_06       = 6
+  fromEnum SI_FLAG_07       = 7
+  fromEnum SI_FLAG_08       = 8
+  fromEnum SI_FLAG_TCS      = 9
+  fromEnum SI_FLAG_REG      = 10
+  fromEnum SI_FLAG_TRIM     = 11
+
+  toEnum 0  = SI_FLAG_R
+  toEnum 1  = SI_FLAG_W
+  toEnum 2  = SI_FLAG_X
+  toEnum 3  = SI_FLAG_PENDING
+  toEnum 4  = SI_FLAG_MODIFIED
+  toEnum 5  = SI_FLAG_PR
+  toEnum 6  = SI_FLAG_06
+  toEnum 7  = SI_FLAG_07
+  toEnum 8  = SI_FLAG_08
+  toEnum 9  = SI_FLAG_TCS
+  toEnum 10 = SI_FLAG_REG
+  toEnum 11 = SI_FLAG_TRIM
+  toEnum _  = undefined

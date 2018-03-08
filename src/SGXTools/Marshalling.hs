@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DataKinds  #-}
 
 module SGXTools.Marshalling where
 
@@ -10,9 +12,9 @@ import Data.Bits
 import Data.Binary
 import Data.Binary.Put
 import Data.Binary.Get
-import qualified Data.Binary.Builder as BD
+import qualified Data.Binary.Builder  as BD
 import qualified Data.ByteString.Lazy as L
-
+import qualified Data.ByteString      as B
 
 setBitIfTrue :: Bool
              -> Int
@@ -37,7 +39,6 @@ putPadBytes :: Int   -- Pad count
             -> Put
 putPadBytes c = putBuilder . BD.fromLazyByteString . L.take c' . L.repeat
                 where c' = fromIntegral c
-
 
 getAttributes :: Get Attributes
 getAttributes = do
@@ -103,6 +104,20 @@ getBigInteger_be c | c <= 0    = return 0
                        return $! (w `shiftL` ((c-1)*8)) + w'
 
 
+-- runGetMany :: Get a -> L.ByteString -> Either String [a]
+-- runGetMany g bs0 = start [] (L.toChunks bs0)
+--   where go :: [a] -> [B.ByteString] -> Decoder a -> Either String [a]
+--         go _pre _     (Fail _ _ msg) = Left msg
+--         go prev []    (Partial f)    = go prev [] (f Nothing)
+--         go prev (h:r) (Partial f)    = go prev r (f (Just h))
+--         go prev l     (Done bs _ v)  = start (v:prev) (bs:l)
+
+--         start :: [a] -> [B.ByteString] -> Either String [a]
+--         start prev [] = Right $! reverse prev
+--         start prev (h:r) | B.null h = start prev r
+--         start prev l = go prev l (runGetIncremental g)
+
+
 getEInitToken :: Get EInitToken
 getEInitToken = do
   dbg        <- fmap (\x -> testBit x 0) getWord32le
@@ -139,7 +154,6 @@ getEInitToken = do
     , eitMAC                  = mac
     }
 
-
 parseEInitToken :: L.ByteString -> EInitToken
 parseEInitToken = runGet getEInitToken
 
@@ -149,7 +163,6 @@ getXFRM = do
   case w .&. 0x3 of
     0x3  -> return $ XFRM True  w  (w `shiftR` 2 > 0)
     _    -> return $ XFRM False 0x0 False
-
 
 putXFRM :: XFRM -> Put
 putXFRM x =
@@ -210,11 +223,16 @@ sgxKeySize = 384
 
 getSigStruct :: Get SigStruct
 getSigStruct = do
-  ss1        <- getBigInteger_be 12
-  isDebug    <- getWord32le
-  vendor     <- getWord32le
+  ss1        <- getBigInteger_be 16
+  unless (ss1 == fromSSHeader ssHeaderVal1) $
+    fail $ printf "Invalid SigStruct Header1 value: \n%x\bexptected:%x"
+                  ss1 (fromSSHeader ssHeaderVal1)
+  vendor     <- getWord32be
   date       <- getSGXDate
   ss2        <- getBigInteger_be 16
+  unless (ss2 == fromSSHeader ssHeaderVal2) $
+    fail $ printf "Invalid SigStruct Header2 value: \n%x\bexptected:%x"
+                  ss2 (fromSSHeader ssHeaderVal2)
   hwver      <- getWord32le
   skip 84
   modulus    <- getBigInteger_le sgxKeySize
@@ -235,7 +253,6 @@ getSigStruct = do
 
   return $! SigStruct {
     ssHeader1     = SSHeader ss1
-    , ssIsDebug   = isDebug == 0x80000000
     , ssVendor    = if vendor == 0
                     then SSVendorOther
                     else SSVendorIntel
@@ -260,8 +277,107 @@ getSigStruct = do
     , ssQ2                     = q2
     }
 
+
+getDataDirectory :: Get DataDirectory
+getDataDirectory = do
+  off  <- getWord32le
+  dirSz <- getWord32le
+  return $! DataDirectory
+    {
+      ddOffset = off
+    , ddSize   = dirSz
+    }
+
+getDataDirectories :: Int -> Get [DataDirectory]
+getDataDirectories count
+  | count <= 0 = return []
+  | otherwise  = getDDs' count []
+  where
+    getDDs' :: Int -> [DataDirectory] -> Get [DataDirectory]
+    getDDs' 0 dd = return $! reverse dd
+    getDDs' c dd = getDataDirectory >>=
+      \this -> getDDs' (c-1) $! (this : dd)
+
 putMetadata :: EnclaveMetadata -> Put
 putMetadata = undefined
+
+ddCount :: Int
+ddCount = 2
+
+ddPatchIndex :: Int
+ddPatchIndex = 0
+
+ddLayoutIndex ::Int
+ddLayoutIndex = 1
+
+getPatch :: Get PatchEntry
+getPatch = do
+  dest <- getWord64le
+  dsrc <- getWord32le
+  psz  <- getWord32le
+  skip 16 -- four 32-bit ints reserved
+  return $! PatchEntry
+    {
+      patchDest   = dest
+    , patchSource = dsrc
+    , patchSize   = psz
+    }
+
+getLayout :: Get LayoutEntry
+getLayout = do
+  gid  <- fmap (toEnum . fromIntegral) getWord16le
+  case  isGroupId gid of
+    True -> do
+      lCount <- getWord16le
+      lTimes <- getWord32le
+      lStep  <- getWord64le
+      skip 16
+      return $! LayoutGroup
+        {
+          lgrpID = gid
+        , lgrpEntryCount = lCount
+        , lgrpLoadTimes = lTimes
+        , lgrpLoadStep = lStep
+        , lgrpReserved = []
+        }
+    False -> do
+      lops      <- fmap extractFlags getWord16le
+      lpCount   <- getWord32le
+      lpRVA     <- getWord64le
+      lpContSz  <- getWord32le
+      lpContOff <- getWord32le
+      perm      <- fmap extractFlags getWord64le
+      return $! LayoutEntry
+        {
+          lentryID = gid
+        , lentryOps = lops
+        , lentryPageCount = lpCount
+        , lentryRVA = lpRVA
+        , lentryContentSz = lpContSz
+        , lentryContentOff = lpContOff
+        , lentryPermFlags = perm
+        }
+
+getPatches :: Get [PatchEntry]
+getPatches = do
+  empty <- isEmpty
+  if empty
+    then return []
+    else do
+    p  <- getPatch
+    p' <- getPatches
+    return $! (p : p')
+
+getLayouts :: Get [LayoutEntry]
+getLayouts = do
+  empty <- isEmpty
+  if empty
+    then return []
+    else do
+    l  <- getLayout
+    l' <- getLayouts
+    return $! (l : l')
+
 
 getMetadata :: Get EnclaveMetadata
 getMetadata = do
@@ -280,7 +396,9 @@ getMetadata = do
   desiredMisc <- getWord32le
   tcsMinPool  <- getWord32le
   enclaveSz   <- getWord64le
+  attr        <- getAttributes
   css         <- getSigStruct
+  dd          <- getDataDirectories ddCount
   return $! EnclaveMetadata
     {
       metaMagicNum       = magic
@@ -292,10 +410,11 @@ getMetadata = do
     , metaDesiredMiscSel = desiredMisc
     , metaTCSMinPool     = tcsMinPool
     , metaEnclaveSize    = enclaveSz
+    , metaAttributes     = attr
     , metaEnclaveCSS     = css
-    , metaDataDirectory  = []
-    , metaPatchRegion    = []
-    , metaLayoutRegion   = []
+    , metaDataDirectory  = dd
+    , metaPatches        = []
+    , metaLayouts        = []
     }
 
 
@@ -321,4 +440,8 @@ instance Binary XFRM where
 
 instance Binary EInitToken where
   get = getEInitToken
+  put = undefined
+
+instance Binary SigStruct where
+  get = getSigStruct
   put = undefined
