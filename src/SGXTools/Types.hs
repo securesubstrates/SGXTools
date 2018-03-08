@@ -76,6 +76,18 @@ data PageType = PT_SECS
               | PT_TRIM
               deriving (Show, Eq)
 
+data TCS_POLICY = TCS_POLICY_BIND
+                | TCS_POLICY_UNBIND
+                deriving (Show, Eq)
+
+instance Enum TCS_POLICY where
+  toEnum 0 = TCS_POLICY_BIND
+  toEnum 1 = TCS_POLICY_UNBIND
+  toEnum _ = undefined
+
+  fromEnum TCS_POLICY_BIND   = 0
+  fromEnum TCS_POLICY_UNBIND = 1
+
 instance Enum PageType where
   toEnum 0 = PT_SECS
   toEnum 1 = PT_TCS
@@ -99,6 +111,7 @@ data PCMD = PCMD {
 
 data SigStruct = SigStruct{
   ssHeader1                :: SigStructHeader      -- 12 bytes. Signed
+  , ssIsDebug              :: Word32               -- 4 bytes. Signed
   , ssVendor               :: SigStructVendor      -- 4  bytes. Signed
   , ssBuildDate            :: SigStructDate        -- 4  bytes. Signed
   , ssHeader2              :: SigStructHeader      -- 16 bytes. Signed
@@ -148,7 +161,7 @@ data SigStructHeader = SSHeader{
 }deriving(Show)
 
 ssHeaderVal1 :: SigStructHeader
-ssHeaderVal1 = SSHeader 0x06000000E10000000000010000000000
+ssHeaderVal1 = SSHeader 0x06000000E100000000000100
 
 ssHeaderVal2 :: SigStructHeader
 ssHeaderVal2 = SSHeader 0x01010000600000006000000001000000
@@ -171,21 +184,57 @@ data SigStructDate = SSDate {
   ssYear      :: Year
   ,  ssMonth  :: Month
   ,  ssDay    :: Day
-  } deriving (Show, Eq)
+  } deriving (Eq)
 
 
 data Year = Year {
-  y1 :: Word8
-  , y2 :: Word8
-  , y3 :: Word8
-  , y4 :: Word8
+  yyyy :: Word16
   } deriving (Eq)
 
 
 data Month = Jan | Feb | Mar | Apr
            | May | Jun | Jul | Aug
            | Sep | Oct | Nov | Dec
-           deriving( Show, Eq)
+           | Unknown Int
+           deriving(Show, Eq)
+
+instance Enum Month where
+  toEnum 1 = Jan
+  toEnum 2 = Feb
+  toEnum 3 = Mar
+  toEnum 4 = Apr
+  toEnum 5 = May
+  toEnum 6 = Jun
+  toEnum 7 = Jul
+  toEnum 8 = Aug
+  toEnum 9 = Sep
+  toEnum 10 = Oct
+  toEnum 11 = Nov
+  toEnum 12 = Dec
+  toEnum x  = (Unknown x)
+
+  fromEnum Jan = 1
+  fromEnum Feb = 2
+  fromEnum Mar = 3
+  fromEnum Apr = 4
+  fromEnum May = 5
+  fromEnum Jun = 6
+  fromEnum Jul = 7
+  fromEnum Aug = 8
+  fromEnum Sep = 9
+  fromEnum Oct = 10
+  fromEnum Nov = 11
+  fromEnum Dec = 12
+
+  succ m = let m' = fromEnum m
+           in if m' == 12
+              then Jan
+              else toEnum $ m'+1
+
+  pred m = let m' = fromEnum m
+           in if m' == 1
+              then Dec
+              else toEnum $ m'-1
 
 data Day = Day Word8 deriving (Eq)
 
@@ -198,7 +247,6 @@ instance Enum Day where
                        else pred x
   toEnum  = Day . fromIntegral
   fromEnum (Day x) = fromIntegral x
-
 
 
 data TCS = TCS {
@@ -388,8 +436,8 @@ data KeyPolicy = KeyPolicy {
 
 
 instance Show Year where
-  show (Year a1 a2 a3 a4) =
-    printf "%.1x%.1x%.1x%.1x" a1 a2 a3 a4
+  show (Year y) =
+    printf "%d" (fromIntegral y :: Int)
 
 instance Show Day where
   show (Day d) = show d
@@ -529,9 +577,9 @@ extractFlags w = extractOpts w 0 [] where
               -> Int
               -> [b]
               -> [b]
-  extractOpts w' n ys | w' `seq` w' == 0     = ys
+  extractOpts w' n ys | w' == 0     = ys
                       | otherwise   =
-                          let isSet = w .&. 0x1 == 0x1
+                          let isSet = w' .&. 0x1 == 0x1
                               flag  = toEnum n
                               w''   = w' `shiftR` 1
                           in if isSet
@@ -619,12 +667,12 @@ data PagePermissionFlags =
   | SI_FLAG_PENDING
   | SI_FLAG_MODIFIED
   | SI_FLAG_PR
+  | SI_FLAG_SECS
   | SI_FLAG_TCS
   | SI_FLAG_REG
+  | SI_FLAG_VA
   | SI_FLAG_TRIM
-  | SI_FLAG_06
-  | SI_FLAG_07
-  | SI_FLAG_08
+  | PermUnknown Int
   deriving(Show, Eq)
 
 
@@ -635,12 +683,12 @@ instance Enum PagePermissionFlags where
   fromEnum SI_FLAG_PENDING  = 3
   fromEnum SI_FLAG_MODIFIED = 4
   fromEnum SI_FLAG_PR       = 5
-  fromEnum SI_FLAG_06       = 6
-  fromEnum SI_FLAG_07       = 7
-  fromEnum SI_FLAG_08       = 8
+  fromEnum SI_FLAG_SECS     = 8
   fromEnum SI_FLAG_TCS      = 9
   fromEnum SI_FLAG_REG      = 10
-  fromEnum SI_FLAG_TRIM     = 11
+  fromEnum SI_FLAG_VA       = 11
+  fromEnum SI_FLAG_TRIM     = 12
+  fromEnum (PermUnknown k)  = k
 
   toEnum 0  = SI_FLAG_R
   toEnum 1  = SI_FLAG_W
@@ -648,10 +696,36 @@ instance Enum PagePermissionFlags where
   toEnum 3  = SI_FLAG_PENDING
   toEnum 4  = SI_FLAG_MODIFIED
   toEnum 5  = SI_FLAG_PR
-  toEnum 6  = SI_FLAG_06
-  toEnum 7  = SI_FLAG_07
-  toEnum 8  = SI_FLAG_08
+  toEnum 8  = SI_FLAG_SECS
   toEnum 9  = SI_FLAG_TCS
   toEnum 10 = SI_FLAG_REG
-  toEnum 11 = SI_FLAG_TRIM
-  toEnum _  = undefined
+  toEnum 11 = SI_FLAG_VA
+  toEnum 12 = SI_FLAG_TRIM
+  toEnum k  = PermUnknown k
+
+
+getBytesToDate :: Word32 -> SigStructDate
+getBytesToDate w =
+  let
+    extractNibble :: Word32 -> Int -> Int
+    extractNibble x n = fromIntegral
+                        ((x `shiftR` n) .&. 0xf)
+    y1 = extractNibble w 28
+    y2 = extractNibble w 24
+    y3 = extractNibble w 20
+    y4 = extractNibble w 16
+    m1 = extractNibble w 12
+    m2 = extractNibble w 8
+    d1 = extractNibble w 4
+    d2 = extractNibble w 0
+    year = y1 * 1000 + y2 * 100 + y3 * 10 + y4
+    month = m1*10 + m2
+    day   = d1*10 + d2
+  in
+    SSDate (Year (fromIntegral year)) (toEnum month) (toEnum day)
+
+
+instance Show SigStructDate where
+  show (SSDate y m d) = (show d) ++ "-" ++
+                        (show m) ++ "-" ++
+                        (show y)

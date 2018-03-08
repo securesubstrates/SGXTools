@@ -27,7 +27,7 @@ getMiscSelect :: Get MiscSelect
 getMiscSelect = do
   msBit <- getWord8
   skip 3
-  return $ MiscSelect (msBit .&. 0x80 == 0x80) 0x00
+  return $! MiscSelect (msBit .&. 0x80 == 0x80) 0x00
 
 putMiscSelect :: MiscSelect -> Put
 putMiscSelect x = if miscExInfo x
@@ -44,15 +44,15 @@ getAttributes :: Get Attributes
 getAttributes = do
   w        <- getWord8
   skip 7
-  xf       <- get
-  return Attributes {
+  xf       <- getXFRM
+  return $! Attributes {
     attrInit                = testBit w 0
     , attrDebug             = testBit w 1
     , attrMode64Bit         = testBit w 2
     , attrReserved_bit3     = False
     , attrProvisionKey      = testBit w 4
     , attrEinitTokenKey     = testBit w 5
-    , attrReserved_bit6_63  = L.take 7 $ L.repeat 0x0
+    , attrReserved_bit6_63  = L.take 7 $! L.repeat 0x0
     , attrXFRM              = xf
     }
 
@@ -102,20 +102,6 @@ getBigInteger_be c | c <= 0    = return 0
                        w  <- fmap fromIntegral getWord8
                        w' <- getBigInteger_be (c-1)
                        return $! (w `shiftL` ((c-1)*8)) + w'
-
-
--- runGetMany :: Get a -> L.ByteString -> Either String [a]
--- runGetMany g bs0 = start [] (L.toChunks bs0)
---   where go :: [a] -> [B.ByteString] -> Decoder a -> Either String [a]
---         go _pre _     (Fail _ _ msg) = Left msg
---         go prev []    (Partial f)    = go prev [] (f Nothing)
---         go prev (h:r) (Partial f)    = go prev r (f (Just h))
---         go prev l     (Done bs _ v)  = start (v:prev) (bs:l)
-
---         start :: [a] -> [B.ByteString] -> Either String [a]
---         start prev [] = Right $! reverse prev
---         start prev (h:r) | B.null h = start prev r
---         start prev l = go prev l (runGetIncremental g)
 
 
 getEInitToken :: Get EInitToken
@@ -208,25 +194,22 @@ validMetaVersion = [
   ]
 
 
+
 getSGXDate :: Get SigStructDate
 getSGXDate = do
-  _ <- getWord32be
-  return $! SSDate
-    {
-      ssYear = Year 0 0 0 0
-    , ssMonth = Jan
-    , ssDay   = Day 1
-    }
+  date <- getWord32le
+  return $! getBytesToDate date
 
 sgxKeySize :: Int
 sgxKeySize = 384
 
 getSigStruct :: Get SigStruct
 getSigStruct = do
-  ss1        <- getBigInteger_be 16
+  ss1        <- getBigInteger_be 12
   unless (ss1 == fromSSHeader ssHeaderVal1) $
     fail $ printf "Invalid SigStruct Header1 value: \n%x\bexptected:%x"
                   ss1 (fromSSHeader ssHeaderVal1)
+  dbg        <- getWord32le
   vendor     <- getWord32be
   date       <- getSGXDate
   ss2        <- getBigInteger_be 16
@@ -253,6 +236,7 @@ getSigStruct = do
 
   return $! SigStruct {
     ssHeader1     = SSHeader ss1
+    , ssIsDebug   = dbg
     , ssVendor    = if vendor == 0
                     then SSVendorOther
                     else SSVendorIntel
@@ -326,7 +310,7 @@ getPatch = do
 getLayout :: Get LayoutEntry
 getLayout = do
   gid  <- fmap (toEnum . fromIntegral) getWord16le
-  case  isGroupId gid of
+  case isGroupId gid of
     True -> do
       lCount <- getWord16le
       lTimes <- getWord32le
@@ -340,13 +324,14 @@ getLayout = do
         , lgrpLoadStep = lStep
         , lgrpReserved = []
         }
+
     False -> do
       lops      <- fmap extractFlags getWord16le
       lpCount   <- getWord32le
       lpRVA     <- getWord64le
       lpContSz  <- getWord32le
       lpContOff <- getWord32le
-      perm      <- fmap extractFlags getWord64le
+      perm      <- getWord64le
       return $! LayoutEntry
         {
           lentryID = gid
@@ -355,7 +340,7 @@ getLayout = do
         , lentryRVA = lpRVA
         , lentryContentSz = lpContSz
         , lentryContentOff = lpContOff
-        , lentryPermFlags = perm
+        , lentryPermFlags = extractFlags (perm .&. 0xff9f) -- bit 6-7 zero
         }
 
 getPatches :: Get [PatchEntry]

@@ -7,8 +7,16 @@ import SGXTools.IntelSignedEnclave
 import SGXToolsCmdOptions
 import System.IO
 import System.Environment (getProgName)
+import Text.PrettyPrint.ANSI.Leijen
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString      as B
+
+showMetadata :: Either SGXELFError EnclaveMetadata -> IO ()
+showMetadata (Left err) = print err
+showMetadata (Right m) = putDoc $! ppMetadata m
+
+showLaunchToken :: EInitToken -> IO ()
+showLaunchToken eit = putDoc $! ppEinitToken eit
 
 main :: IO ()
 main = do
@@ -20,10 +28,12 @@ main = do
     (Version     str) -> printVersion str
   where
     printElfInfo   :: Handle -> IO ()
-    printElfInfo fd = fmap getEnclaveMetadata (B.hGetContents fd) >>= print
+    printElfInfo fd =
+      fmap getEnclaveMetadata (B.hGetContents fd) >>= showMetadata
 
     printEinitInfo :: Handle -> IO ()
-    printEinitInfo fd = fmap parseEInitToken (L.hGetContents fd) >>= print
+    printEinitInfo fd = fmap parseEInitToken (L.hGetContents fd)
+      >>= showLaunchToken
 
     hexDump :: Handle -> IO ()
     hexDump fd = fmap toHexRep (L.hGetContents fd) >>= print
