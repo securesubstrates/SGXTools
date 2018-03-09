@@ -683,11 +683,11 @@ instance Enum PagePermissionFlags where
   fromEnum SI_FLAG_PENDING  = 3
   fromEnum SI_FLAG_MODIFIED = 4
   fromEnum SI_FLAG_PR       = 5
-  fromEnum SI_FLAG_SECS     = 8
-  fromEnum SI_FLAG_TCS      = 9
-  fromEnum SI_FLAG_REG      = 10
-  fromEnum SI_FLAG_VA       = 11
-  fromEnum SI_FLAG_TRIM     = 12
+  fromEnum SI_FLAG_SECS     = 7
+  fromEnum SI_FLAG_TCS      = 8
+  fromEnum SI_FLAG_REG      = 9
+  fromEnum SI_FLAG_VA       = 10
+  fromEnum SI_FLAG_TRIM     = 11
   fromEnum (PermUnknown k)  = k
 
   toEnum 0  = SI_FLAG_R
@@ -696,11 +696,11 @@ instance Enum PagePermissionFlags where
   toEnum 3  = SI_FLAG_PENDING
   toEnum 4  = SI_FLAG_MODIFIED
   toEnum 5  = SI_FLAG_PR
-  toEnum 8  = SI_FLAG_SECS
-  toEnum 9  = SI_FLAG_TCS
-  toEnum 10 = SI_FLAG_REG
-  toEnum 11 = SI_FLAG_VA
-  toEnum 12 = SI_FLAG_TRIM
+  toEnum 7  = SI_FLAG_SECS
+  toEnum 8  = SI_FLAG_TCS
+  toEnum 9 = SI_FLAG_REG
+  toEnum 10 = SI_FLAG_VA
+  toEnum 11 = SI_FLAG_TRIM
   toEnum k  = PermUnknown k
 
 
