@@ -25,6 +25,9 @@ data SGXToolsOpts = Version String
   }
   | ELFInfo {
       elfFile :: String
+      , showLayout :: Bool
+      , showPatchDir :: Bool
+      , computeMrEnclave :: Bool
   }
 
 elfInfoParser :: Parser SGXToolsOpts
@@ -33,6 +36,15 @@ elfInfoParser = ELFInfo <$> strOption
   <> short 'i'
   <> metavar "ENCLAVE .SO FILENAME"
   <> help "Signed enclave .so filename")
+  <*> switch (long "print-layout"
+              <> short 'l'
+              <> help "Display enclave memory layout")
+  <*> switch (long "print-patch"
+              <> short 'p'
+              <> help "Display patch metadata")
+  <*> switch (long "recalc"
+              <> short 'm'
+              <> help "Recalculate MrEnclave")
 
 elfOpts :: ParserInfo SGXToolsOpts
 elfOpts = info elfInfoParser
