@@ -442,42 +442,6 @@ instance Show Year where
 instance Show Day where
   show (Day d) = show d
 
-instance Show EInitToken where
-  show (EInitToken dbg _ attr mrenc _ mrsign _ cpusvn prodid
-         svnle _ miscmask attrmask keyid mac) =
-    let
-      toHexRep2 x = "0x" ++ (toHexRep x)
-      kvp = [ ("einitToken (CMAC)", toHexRep2 mac)
-            , ("keyid"            , toHexRep2 keyid)
-            , ("isDebug"          , if dbg then "True" else "False")
-            , ("attributes"       , show attr)
-            , ("mrenclave"        , toHexRep2 mrenc)
-            , ("mrsigner"         , toHexRep2 mrsign)
-            , ("CPUSVN*"          , show cpusvn)
-            , ("productId*"       , printf "%.4x" prodid)
-            , ("softwareVersion*" , printf "%.4x" svnle)
-            , ("miscSelectMask*"  , printf "%.8x" miscmask)
-            , ("attributesMask*"  , show attrmask) ]
-    in
-      formatKVP kvp
-
-
-formatKVP :: [(String, String)] -> String
-formatKVP xs =
-  let
-    lenMax :: (String, String) -> Int -> Int
-    lenMax (x,_) old = let l = length x
-                       in if l > old
-                          then l
-                          else old
-    max_key_len = foldr lenMax 0 xs
-    pad s       = take (max_key_len - length s) $ repeat ' '
-    paddedStr (key, value) = key ++ (pad key) ++ " : " ++
-                             value ++ "\n"
-  in
-    concatMap paddedStr xs
-
-
 data EnclaveMetadata = EnclaveMetadata
   {
     metaMagicNum       :: !Word64
