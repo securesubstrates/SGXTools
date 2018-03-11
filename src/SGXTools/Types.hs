@@ -169,7 +169,11 @@ ssHeaderVal2 = SSHeader 0x01010000600000006000000001000000
 
 data SigStructVendor = SSVendorIntel
                      | SSVendorOther
-                     deriving (Show, Eq)
+                     deriving (Eq)
+
+instance Show SigStructVendor where
+  show SSVendorOther = "Other"
+  show SSVendorIntel = "Intel"
 
 instance Enum SigStructVendor where
   toEnum 0x8086 = SSVendorIntel
@@ -531,8 +535,6 @@ data LayoutEntry =
   , lgrpReserved    :: [Word32]
   }
   deriving(Show)
-
-
 
 extractFlags :: (Integral a, Enum b, Bits a) => a
              -> [b]

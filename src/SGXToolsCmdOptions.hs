@@ -17,18 +17,12 @@ toolVersion = "0.0.0.1"
 #endif
 
 data SGXToolsOpts = Version String
-  | HexOptions {
-      binFile :: String -- Hexdump a file
-  }
-  | EinitOption {
-      einitFile :: String
-  }
-  | ELFInfo {
-      elfFile :: String
-      , showLayout :: Bool
-      , showPatchDir :: Bool
-      , computeMrEnclave :: Bool
-  }
+  | HexOptions String  {- Input file    -} -- Hexdump a file
+  | EinitOption String {- Input file    -} -- Print einit token info
+  | ELFInfo String     {- Input file    -}
+            Bool       {- show layout   -}
+            Bool       {- show path     -}
+            Bool       {- disable color -}
 
 elfInfoParser :: Parser SGXToolsOpts
 elfInfoParser = ELFInfo <$> strOption
@@ -36,15 +30,9 @@ elfInfoParser = ELFInfo <$> strOption
   <> short 'i'
   <> metavar "ENCLAVE .SO FILENAME"
   <> help "Signed enclave .so filename")
-  <*> switch (long "print-layout"
-              <> short 'l'
-              <> help "Display enclave memory layout")
-  <*> switch (long "print-patch"
-              <> short 'p'
-              <> help "Display patch metadata")
-  <*> switch (long "recalc"
-              <> short 'm'
-              <> help "Recalculate MrEnclave")
+  <*> switch (long "print-layout" <> short 'l')
+  <*> switch (long "print-patch" <> short 'p')
+  <*> switch (long "nocolor" <> short 'c')
 
 elfOpts :: ParserInfo SGXToolsOpts
 elfOpts = info elfInfoParser
@@ -68,7 +56,6 @@ hexParser = HexOptions <$> strOption
 hexOpts :: ParserInfo SGXToolsOpts
 hexOpts = info hexParser
   (progDesc "Convert binary file to hex")
-
 
 einitParser :: Parser SGXToolsOpts
 einitParser = EinitOption <$> strOption (

@@ -33,17 +33,17 @@ main = do
     (EinitOption fn)  -> withFile fn ReadMode printEinitInfo
     (HexOptions  fn)  -> withFile fn ReadMode hexDump
     (Version     str) -> printVersion str
-    (ELFInfo fn l p m) -> withFile fn ReadMode (printElfInfo l p m)
+    (ELFInfo fn l p c) -> withFile fn ReadMode (printElfInfo l p c)
   where
     printElfInfo   :: Bool -- Show layout
                    -> Bool -- Show Path Dit
-                   -> Bool -- Recalculate MrEnclave
+                   -> Bool -- Disable color
                    -> Handle -- Input file handle
                    -> IO ()
-    printElfInfo l p _ fd = do
-      c <- queryTerminal stdOutput
+    printElfInfo l p c fd = do
+      t <- queryTerminal stdOutput
       d <- fmap getEnclaveMetadata (B.hGetContents fd)
-      showMetadata l p c d
+      showMetadata l p (not c && t) d
 
     printEinitInfo :: Handle -> IO ()
     printEinitInfo fd = do

@@ -201,7 +201,7 @@ ppSigStruct c s = formatKVPDoc c [
   , ("Build Date", show2Doc $! ssBuildDate s)
   , ("Product ID", show2Doc $! ssIsvProdId s)
   , ("Software Version", show2Doc $! ssIsvSvn s)
-  , ("MrEnclave", (bold . text) $! "0x" ++ (toHexRep (ssEnclaveHash s)))
+  , ("MrEnclave", (boldColor c . text) $! "0x" ++ (toHexRep (ssEnclaveHash s)))
   , ("Misc Select", show2Doc $! ssMiscSelect s)
   , ("Misc Mask", show2Doc $! ssMiscMask s)
   , ("Attributes", embed $! ppAttributes c $! (ssAttributes s))
