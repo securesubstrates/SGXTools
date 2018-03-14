@@ -53,21 +53,10 @@ data PageInfo = PageInfo {
   , pgSecs          :: Word64        -- Effective address of EPC slot that currently contains the SECS
   }
 
-data SecInfo = SecInfo {
-  siFlags       :: SecInfoFlags
+newtype SecInfo = SecInfo {
+  secInfoFlags :: [SecInfoFlags]
   }
 
-data SecInfoFlags = SecInfoFlags {
-  sifIsRead               :: Bool
-  , sifIsWrite            :: Bool
-  , sifIsExecute          :: Bool
-  , sifIsPending          :: Bool
-  , sifIsModified         :: Bool
-  , sifHasPermRestriction :: Bool
-  , sifReserved_bit6_7    :: Word8
-  , sifPageType           :: PageType
-  , sifReserved_bit16_64  :: Word64
-  }
 
 data PageType = PT_SECS
               | PT_TCS
@@ -526,7 +515,7 @@ data LayoutEntry =
   , lentryContentOff:: !Word32 -- Offset of initial
                                -- content relative
                                -- to metadata
-  , lentryPermFlags :: [PagePermissionFlags]
+  , lentryPermFlags :: [SecInfoFlags]
   } | LayoutGroup {
     lgrpID          :: !LayoutIdentity
   , lgrpEntryCount  :: !Word16
@@ -536,7 +525,7 @@ data LayoutEntry =
   }
   deriving(Show)
 
-extractFlags :: (Integral a, Enum b, Bits a) => a
+extractFlags :: (Integral a, Bits a, Enum b) => a
              -> [b]
 extractFlags w = extractOpts w 0 [] where
   extractOpts :: (Integral a, Enum b, Bits a) => a
@@ -552,7 +541,13 @@ extractFlags w = extractOpts w 0 [] where
                           then extractOpts w'' (n+1)
                                               (flag:ys)
                           else extractOpts w'' (n+1) ys
+{-# INLINE extractFlags #-}
 
+encodeFlags :: (Enum a, Integral b, Bits b)
+            => [a]
+            -> b
+encodeFlags = foldr (\ x y -> shiftL 1 (fromEnum x) .|. y) 0
+{-# INLINE encodeFlags #-}
 
 instance Enum LayoutOperations where
   toEnum 0 = E_ADD
@@ -626,7 +621,7 @@ isGroupId16 w = (groupFlag .&. (fromIntegral w)) /= 0
 isGroupId :: LayoutIdentity -> Bool
 isGroupId e = groupFlag .&. fromEnum e /= 0
 
-data PagePermissionFlags =
+data SecInfoFlags =
   SI_FLAG_R
   | SI_FLAG_W
   | SI_FLAG_X
@@ -642,7 +637,7 @@ data PagePermissionFlags =
   deriving(Show, Eq)
 
 
-instance Enum PagePermissionFlags where
+instance Enum SecInfoFlags where
   fromEnum SI_FLAG_R        = 0  -- These are bit positions
   fromEnum SI_FLAG_W        = 1
   fromEnum SI_FLAG_X        = 2

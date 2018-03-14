@@ -2,16 +2,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 module SGXTools.IntelSignedEnclave where
 
-import Data.Binary
-import SGXTools.Types
-import SGXTools.Marshalling
-import Data.Binary.Get (runGetOrFail)
-import qualified Data.ByteString as B
+import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as L
-import SGXTools.Utils (toHexRep)
-import Data.ElfEdit
-import Text.Printf (printf, PrintfArg)
-import Text.PrettyPrint.ANSI.Leijen
+import qualified Control.Monad.State  as S
+import           Control.Monad (replicateM_)
+import           Crypto.Hash
+import           SGXTools.Types
+import           SGXTools.Marshalling
+import           Data.Binary
+import           Data.Binary.Put
+import           Data.Binary.Get (runGetOrFail)
+import           Data.Bits
+import           SGXTools.Utils (toHexRep)
+import           Data.ElfEdit
+import           Text.Printf (printf, PrintfArg)
+import           Text.PrettyPrint.ANSI.Leijen
 
 ---------------- ELF Parsing stuff --------------------
 
@@ -293,3 +298,108 @@ ppEinitToken c emd = formatKVPDoc c [
   , ("LE Attributes",
       embed $! ppAttributes c $! (eitMaskedAttributes emd))
   ]
+
+
+mPageSize :: (Num a) => a
+mPageSize = 4096
+
+mDataBlockSize :: (Num a) => a
+mDataBlockSize = 64
+
+mEextendStep :: (Num a) => a
+mEextendStep = 256
+
+word32tolistLE :: Word32 -> [Word8]
+word32tolistLE x =
+  fmap (\i -> fromIntegral $! (x `shiftR` (8*i)) .&. 0xff) [0..3]
+{-# INLINE word32tolistLE #-}
+
+word64tolistLE :: Word64 -> [Word8]
+word64tolistLE x =
+  fmap (\i -> fromIntegral $! (x `shiftR` (8*i)) .&. 0xff) [0..7]
+{-# INLINE word64tolistLE #-}
+
+
+ecreateDataBlock ::  Word32 -- ssa_frame_size
+                 -> Word32 -- enclave size
+                 -> L.ByteString
+ecreateDataBlock ssa sz = runPut ecreateBuilder
+  where
+    ecreateBuilder :: Put
+    ecreateBuilder = do
+      putByteString "ECREATE\0"
+      putWord32le ssa
+      putWord64le (fromIntegral sz)
+      putByteString $! B.replicate (mDataBlockSize - 8 - 4 - 8) 0
+
+
+eaddDataBlock :: Word64  -- offset
+              -> SecInfo -- secinfo
+              -> L.ByteString
+eaddDataBlock off sec = L.take mDataBlockSize $! runPut eaddBuilder
+  where
+    eaddBuilder :: Put
+    eaddBuilder = do
+      putByteString "EADD\0\0\0\0"
+      putWord64le off
+      putSecInfo sec
+
+
+eextendDataBlock :: Word64  -- offset
+                 -> L.ByteString
+eextendDataBlock w = runPut eextendBuilder
+  where
+    eextendBuilder :: Put
+    eextendBuilder = do
+      putByteString "EEXTEND\0"
+      putWord64le   w
+      replicateM_ (mDataBlockSize - 8 - 8) $! (putWord8 0)
+
+
+measureEcreate :: Word32         -- ssa_frame_size
+               -> Word32         -- enclave size
+               -> Context SHA256 -- hash context
+measureEcreate ssa_len enc_sz = hashUpdates shaState ecreateData
+  where
+    shaState :: Context SHA256
+    shaState = hashInitWith SHA256
+    ecreateData :: [B.ByteString]
+    ecreateData = L.toChunks $! ecreateDataBlock ssa_len enc_sz
+
+
+measureEadd :: Context SHA256 -- SHA256 context
+            -> Word64         -- Offset
+            -> SecInfo        -- SecInfo
+            -> Context SHA256 -- output hash state
+measureEadd shaState off sec = hashUpdates shaState $! eaddData
+  where
+    eaddData :: [B.ByteString]
+    eaddData = L.toChunks $! eaddDataBlock off sec
+
+
+measureExtendPage :: Context SHA256 -- SHA256 context
+                  -> Word32         -- Page offset
+                  -> L.ByteString   -- Page content
+                  -> Context SHA256 -- Output hash state
+measureExtendPage shaState off bs = mep 0 shaState
+  where
+    eextendHdr :: Word64 -> L.ByteString
+    eextendHdr c = eextendDataBlock $!
+                   c + fromIntegral off
+
+    dataToHash :: Word64 -> L.ByteString
+    dataToHash c = L.take mEextendStep $!
+                   L.drop (fromIntegral c) bs
+
+    dataToHashWithHdr :: Word64 -> [B.ByteString]
+    dataToHashWithHdr c = L.toChunks $!
+                          L.append (eextendHdr c) (dataToHash c)
+
+    mep :: Word64 -> Context SHA256 -> Context SHA256
+    mep c h
+      | c         >= mPageSize = h
+      | otherwise =  mep (c+mEextendStep) $!
+                     hashUpdates h (dataToHashWithHdr c)
+
+finalize :: Context SHA256 -> Digest SHA256
+finalize h = hashFinalize h

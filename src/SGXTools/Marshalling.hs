@@ -6,7 +6,7 @@
 module SGXTools.Marshalling where
 
 import SGXTools.Types
-import Control.Monad (unless)
+import Control.Monad (unless, replicateM_)
 import Text.Printf   (printf)
 import Data.Bits
 import Data.Binary
@@ -59,9 +59,9 @@ getAttributes = do
 
 putAttributes  :: Attributes -> Put
 putAttributes attr = do
-  put topByte
+  putWord8 topByte
   putPadBytes 7 0x0
-  put (attrXFRM attr)
+  putXFRM (attrXFRM attr)
     where
       topByte :: Word8
       topByte =
@@ -403,30 +403,10 @@ getMetadata = do
     }
 
 
-instance Binary EnclaveMetadata where
-  get = getMetadata
-  put = putMetadata
-
-instance Binary MiscSelect where
-  put  = putMiscSelect
-  get  = getMiscSelect
-
-instance Binary CPUSVN where
-  get  = getCPUSVN
-  put  = putCPUSVN
-
-instance Binary Attributes where
-  get = getAttributes
-  put = putAttributes
-
-instance Binary XFRM where
-  get = getXFRM
-  put = putXFRM
-
-instance Binary EInitToken where
-  get = getEInitToken
-  put = undefined
-
-instance Binary SigStruct where
-  get = getSigStruct
-  put = undefined
+putSecInfo :: SecInfo -> Put
+putSecInfo (SecInfo perm) = do
+  putWord64le flagWords
+  replicateM_ 7 $! putWord64le 0
+    where
+      flagWords :: Word64
+      flagWords = encodeFlags perm
