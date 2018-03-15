@@ -1,24 +1,22 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes        #-}
 {-# LANGUAGE OverloadedStrings #-}
 module SGXTools.IntelSignedEnclave where
 
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as L
-import qualified Control.Monad.State  as S
 import           Control.Monad (replicateM_)
 import           Crypto.Hash
 import           SGXTools.Types
 import           SGXTools.Marshalling
+import           SGXTools.Utils (toHexRep)
 import           Data.Binary
 import           Data.Binary.Put
 import           Data.Binary.Get (runGetOrFail)
 import           Data.Bits
-import           SGXTools.Utils (toHexRep)
 import           Data.ElfEdit
 import           Text.Printf (printf, PrintfArg)
 import           Text.PrettyPrint.ANSI.Leijen
 
----------------- ELF Parsing stuff --------------------
 
 data SGXELFError = SGXELFError String deriving (Show)
 
@@ -43,6 +41,13 @@ bsSlice :: (Integral a) => a -- offset
         -> B.ByteString
 bsSlice off sz = (B.take (fromIntegral sz)) . (B.drop (fromIntegral off))
 
+extractPatchData :: B.ByteString -- raw metadata from start
+                 -> PatchEntry   -- Input patch entry
+                 -> PatchEntry   -- output patch entry
+extractPatchData bs p@(PatchEntry _ src sz _) =
+  p{ patchData = B.take (fromIntegral sz) $!
+                 B.drop (fromIntegral src) bs }
+
 parseLayoutAndPatches :: B.ByteString     -- raw metadata from start
                       -> EnclaveMetadata  -- parsed metadata
                       -> Either SGXELFError EnclaveMetadata
@@ -54,7 +59,7 @@ parseLayoutAndPatches bs md = do
   p <- case runGetOrFail getPatches patchSlice of
          Left(_,_, s)    -> Left (SGXELFError $
                                   "Failed to parse Patches: " ++s )
-         Right (_,_, m) -> Right m
+         Right (_,_, m) -> Right $! fmap (extractPatchData bs) m
 
   l <- case runGetOrFail getLayouts layoutSlice of
          Left(_,_, s)   -> Left (SGXELFError $
@@ -63,8 +68,8 @@ parseLayoutAndPatches bs md = do
   return $! md { metaPatches = p, metaLayouts = l }
 
 
-process :: (Elf w) -> Either SGXELFError EnclaveMetadata
-process elfFile = do
+processMetadata :: (Elf w) -> Either SGXELFError EnclaveMetadata
+processMetadata elfFile = do
   bytes <- getEnclaveMetadataRaw elfFile
   partial <- case runGetOrFail getMetadata (L.fromChunks [bytes]) of
                Left  (_, _, s) -> Left (SGXELFError s)
@@ -75,10 +80,10 @@ getEnclaveMetadata :: B.ByteString -> Either SGXELFError EnclaveMetadata
 getEnclaveMetadata bs =
   case parseElf bs of
     Elf32Res err e32
-      | null err  -> process e32
+      | null err  -> processMetadata e32
       | otherwise -> Left $ SGXELFError (show err)
     Elf64Res err e64
-      | null err  -> process e64
+      | null err  -> processMetadata e64
       | otherwise -> Left $ SGXELFError (show err)
     ElfHeaderError _ e -> Left $ SGXELFError (show e)
 
@@ -240,6 +245,9 @@ ppPatch c p = formatKVPDoc c [
   ("Dest", text $! hexNumber $! patchDest p)
   , ("Source", text $! hexNumber $! patchSource p)
   , ("Size", show2Doc $! patchSize p)
+  , ("Content", show2Doc $!
+                toHexRep $!
+                L.fromChunks [patchData p])
   ]
 
 ppPatches :: Bool
@@ -321,7 +329,7 @@ word64tolistLE x =
 
 
 ecreateDataBlock ::  Word32 -- ssa_frame_size
-                 -> Word32 -- enclave size
+                 -> Word64 -- enclave size
                  -> L.ByteString
 ecreateDataBlock ssa sz = runPut ecreateBuilder
   where
@@ -329,7 +337,7 @@ ecreateDataBlock ssa sz = runPut ecreateBuilder
     ecreateBuilder = do
       putByteString "ECREATE\0"
       putWord32le ssa
-      putWord64le (fromIntegral sz)
+      putWord64le sz
       putByteString $! B.replicate (mDataBlockSize - 8 - 4 - 8) 0
 
 
@@ -357,7 +365,7 @@ eextendDataBlock w = runPut eextendBuilder
 
 
 measureEcreate :: Word32         -- ssa_frame_size
-               -> Word32         -- enclave size
+               -> Word64         -- enclave size
                -> Context SHA256 -- hash context
 measureEcreate ssa_len enc_sz = hashUpdates shaState ecreateData
   where
@@ -375,7 +383,6 @@ measureEadd shaState off sec = hashUpdates shaState $! eaddData
   where
     eaddData :: [B.ByteString]
     eaddData = L.toChunks $! eaddDataBlock off sec
-
 
 measureExtendPage :: Context SHA256 -- SHA256 context
                   -> Word32         -- Page offset
@@ -401,5 +408,31 @@ measureExtendPage shaState off bs = mep 0 shaState
       | otherwise =  mep (c+mEextendStep) $!
                      hashUpdates h (dataToHashWithHdr c)
 
-finalize :: Context SHA256 -> Digest SHA256
-finalize h = hashFinalize h
+
+measureEnclave :: B.ByteString -> Either SGXELFError (Digest SHA256)
+measureEnclave bs =
+  case parseElf bs of
+    Elf32Res err e32
+      | null err  -> measure e32
+      | otherwise -> Left $ SGXELFError (show err)
+    Elf64Res err e64
+      | null err  -> measure e64
+      | otherwise -> Left $ SGXELFError (show err)
+    ElfHeaderError _ e -> Left $ SGXELFError (show e)
+
+
+findPT_LOAD ::  Elf w -> [ElfSegment  w]
+findPT_LOAD e = filter (\x -> elfSegmentType x == PT_LOAD) (elfSegments e)
+
+findPT_TLS :: Elf w -> [(ElfSegment w)]
+findPT_TLS e = filter (\x -> elfSegmentType x == PT_TLS) (elfSegments e)
+
+
+measure :: Elf w -> Either SGXELFError (Digest SHA256)
+measure e = do
+  md <- processMetadata e
+  let
+    ssa_sz = metaSSAFrameSize md
+    enc_sz = metaEnclaveSize md
+    ecHash = measureEcreate ssa_sz enc_sz
+  return $! hashFinalize ecHash

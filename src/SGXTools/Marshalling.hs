@@ -305,6 +305,7 @@ getPatch = do
       patchDest   = dest
     , patchSource = dsrc
     , patchSize   = psz
+    , patchData   = B.empty
     }
 
 getLayout :: Get LayoutEntry

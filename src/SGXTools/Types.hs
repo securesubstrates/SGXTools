@@ -2,6 +2,7 @@ module SGXTools.Types where
 
 import Text.Printf
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString      as B
 import           Data.Word (Word64, Word32, Word16, Word8)
 import           Data.Bits ((.&.), (.|.),
                             shiftL, shiftR,
@@ -470,6 +471,7 @@ data PatchEntry = PatchEntry
     patchDest    :: !Word64
   , patchSource  :: !Word32
   , patchSize    :: !Word32
+  , patchData    :: B.ByteString
   }deriving(Show)
 
 data LayoutIdentity =

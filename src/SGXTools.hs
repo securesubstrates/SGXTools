@@ -34,7 +34,13 @@ main = do
     (HexOptions  fn)  -> withFile fn ReadMode hexDump
     (Version     str) -> printVersion str
     (ELFInfo fn l p c) -> withFile fn ReadMode (printElfInfo l p c)
+    (Measure fn)      -> withFile fn ReadMode printMrEnclave
   where
+    printMrEnclave :: Handle -> IO ()
+    printMrEnclave fd = do
+      hash <- fmap measureEnclave (B.hGetContents fd)
+      putStrLn $ "Enclave HASH : 0x" ++ (show hash)
+
     printElfInfo   :: Bool -- Show layout
                    -> Bool -- Show Path Dit
                    -> Bool -- Disable color
