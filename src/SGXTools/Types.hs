@@ -156,7 +156,7 @@ data EInitToken = EInitToken {
   }
 
 
-data SigStructHeader = SSHeader{
+newtype SigStructHeader = SSHeader{
   fromSSHeader :: Integer
 }deriving(Show)
 
@@ -191,7 +191,7 @@ data SigStructDate = SSDate {
   } deriving (Eq)
 
 
-data Year = Year {
+newtype Year = Year {
   yyyy :: Word16
   } deriving (Eq)
 
@@ -199,7 +199,7 @@ data Year = Year {
 data Month = Jan | Feb | Mar | Apr
            | May | Jun | Jul | Aug
            | Sep | Oct | Nov | Dec
-           | Unknown Int
+           | MartianMonth Int
            deriving(Show, Eq)
 
 instance Enum Month where
@@ -215,7 +215,7 @@ instance Enum Month where
   toEnum 10 = Oct
   toEnum 11 = Nov
   toEnum 12 = Dec
-  toEnum x  = (Unknown x)
+  toEnum x  = MartianMonth x
 
   fromEnum Jan = 1
   fromEnum Feb = 2
@@ -229,6 +229,7 @@ instance Enum Month where
   fromEnum Oct = 10
   fromEnum Nov = 11
   fromEnum Dec = 12
+  fromEnum (MartianMonth x) = x
 
   succ m = let m' = fromEnum m
            in if m' == 12
@@ -335,6 +336,7 @@ data ExcptVector = DividerExcpt
                  | FPUErrorExcept
                  | AlignmentCheckExcept
                  | SIMDException
+                 | UnknownExcptVector Int
                  deriving (Show, Eq)
 
 
@@ -349,6 +351,7 @@ instance Enum ExcptVector where
   fromEnum FPUErrorExcept         = 16
   fromEnum AlignmentCheckExcept   = 17
   fromEnum SIMDException          = 19
+  fromEnum (UnknownExcptVector x) = x
 
   toEnum 0 = DividerExcpt
   toEnum 1 = DebugExcpt
@@ -360,7 +363,7 @@ instance Enum ExcptVector where
   toEnum 16 = FPUErrorExcept
   toEnum 17 = AlignmentCheckExcept
   toEnum 19 = SIMDException
-  toEnum _  = undefined
+  toEnum x  = UnknownExcptVector x
 
 
 data Report = Report {
@@ -381,7 +384,7 @@ data Report = Report {
   }
 
 
-data CPUSVN = CPUSVN {
+newtype CPUSVN = CPUSVN {
   cpuSvnValue :: L.ByteString
   }
 
@@ -415,6 +418,7 @@ data KeyName = EINIT_TOKEN_KEY
              | PROVISION_SEAL_KEY
              | REPORT_KEY
              | SEAL_KEY
+             | INVALID_KEY_ID Int
              deriving (Show, Eq)
 
 instance Enum KeyName where
@@ -423,14 +427,14 @@ instance Enum KeyName where
   toEnum 2 = PROVISION_SEAL_KEY
   toEnum 3 = REPORT_KEY
   toEnum 4 = SEAL_KEY
-  toEnum _ = undefined
+  toEnum x = INVALID_KEY_ID x
 
   fromEnum EINIT_TOKEN_KEY     = 0
   fromEnum PROVISION_KEY       = 1
   fromEnum PROVISION_SEAL_KEY  = 2
   fromEnum REPORT_KEY          = 3
   fromEnum SEAL_KEY            = 4
-
+  fromEnum (INVALID_KEY_ID x)  = x
 
 data KeyPolicy = KeyPolicy {
   kpIsMrEnclave :: Bool
