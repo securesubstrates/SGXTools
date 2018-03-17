@@ -475,7 +475,8 @@ data PatchEntry = PatchEntry
   }deriving(Show)
 
 data LayoutIdentity =
-  LAYOUT_ID_HEAP_MIN
+  LAYOUT_ID_ELF_SEGMENT
+  | LAYOUT_ID_HEAP_MIN
   | LAYOUT_ID_HEAP_INIT
   | LAYOUT_ID_HEAP_MAX
   | LAYOUT_ID_TCS
@@ -495,6 +496,7 @@ data LayoutIdentity =
   -- groups
   | LAYOUT_ID_THREAD_GROUP
   | LAYOUT_ID_THREAD_GROUP_DYN
+  | LAYOUT_ID_UNKNOWN Int
   deriving(Eq, Show)
 
 data LayoutOperations =
@@ -574,6 +576,7 @@ instance Enum LayoutOperations where
   fromEnum E_GROWDOWN = 6
 
 instance Enum LayoutIdentity where
+  fromEnum LAYOUT_ID_ELF_SEGMENT   = 0
   fromEnum LAYOUT_ID_HEAP_MIN      = 1
   fromEnum LAYOUT_ID_HEAP_INIT     = 2
   fromEnum LAYOUT_ID_HEAP_MAX      = 3
@@ -593,7 +596,9 @@ instance Enum LayoutIdentity where
   fromEnum LAYOUT_ID_STACK_DYN_MAX    = 17
   fromEnum LAYOUT_ID_STACK_DYN_MIN    = 18
   fromEnum LAYOUT_ID_THREAD_GROUP_DYN = groupId 19
+  fromEnum (LAYOUT_ID_UNKNOWN x)   = x
 
+  toEnum 0 = LAYOUT_ID_ELF_SEGMENT
   toEnum 1 = LAYOUT_ID_HEAP_MIN
   toEnum 2 = LAYOUT_ID_HEAP_INIT
   toEnum 3 = LAYOUT_ID_HEAP_MAX
@@ -613,7 +618,7 @@ instance Enum LayoutIdentity where
   toEnum 18 = LAYOUT_ID_STACK_DYN_MIN
   toEnum x  | groupId 9  == x = LAYOUT_ID_THREAD_GROUP
             | groupId 19 == x = LAYOUT_ID_THREAD_GROUP_DYN
-  toEnum _  = undefined
+  toEnum y  = (LAYOUT_ID_UNKNOWN y)
 
 groupFlag :: Int
 groupFlag = 1 `shiftL` 12

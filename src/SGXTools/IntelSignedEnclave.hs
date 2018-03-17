@@ -336,16 +336,6 @@ mDataBlockSize = 64
 mEextendStep :: (Num a) => a
 mEextendStep = 256
 
-word32tolistLE :: Word32 -> [Word8]
-word32tolistLE x =
-  fmap (\i -> fromIntegral $! (x `shiftR` (8*i)) .&. 0xff) [0..3]
-{-# INLINE word32tolistLE #-}
-
-word64tolistLE :: Word64 -> [Word8]
-word64tolistLE x =
-  fmap (\i -> fromIntegral $! (x `shiftR` (8*i)) .&. 0xff) [0..7]
-{-# INLINE word64tolistLE #-}
-
 
 ecreateDataBlock ::  Word32 -- ssa_frame_size
                  -> Word64 -- enclave size
@@ -372,9 +362,9 @@ eaddDataBlock off sec = L.take mDataBlockSize $! runPut eaddBuilder
       putSecInfo sec
 
 
-eextendDataBlock :: Word64  -- offset
+eextendHdrBlock :: Word64  -- offset
                  -> L.ByteString
-eextendDataBlock w = runPut eextendBuilder
+eextendHdrBlock w = runPut eextendBuilder
   where
     eextendBuilder :: Put
     eextendBuilder = do
@@ -392,18 +382,17 @@ measureEcreate ssa_len enc_sz = hashUpdates shaState ecreateData
     shaState = hashInitWith SHA256
     ecreateData :: [B.ByteString]
     ecreateData = L.toChunks $! ecreateDataBlock ssa_len enc_sz
--}
-{-
+
+
 measureEadd :: Context SHA256 -- SHA256 context
             -> Word64         -- Offset
             -> SecInfo        -- SecInfo
             -> Context SHA256 -- output hash state
 measureEadd shaState off sec = hashUpdates shaState $! eaddData
   where
-    eaddData :: [B.ByteString]
-    eaddData = L.toChunks $! eaddDataBlock off sec
+      eaddData :: [B.ByteString]
+      eaddData = L.toChunks $! eaddDataBlock off sec
 
--}
 
 measureExtendPage :: Context SHA256 -- SHA256 context
                   -> Word32         -- Page offset
@@ -428,100 +417,154 @@ measureExtendPage shaState off bs = mep 0 shaState
       | c         >= mPageSize = h
       | otherwise =  mep (c+mEextendStep) $!
                      hashUpdates h (dataToHashWithHdr c)
+-}
+
+measureEnclave :: B.ByteString -> Either SGXELFError (Digest SHA256)
+measureEnclave bs =
+  case parseElf bs of
+    Elf32Res err e32
+      | null err  -> undefined -- measure e32
+      | otherwise -> Left $ SGXELFError (show err)
+    Elf64Res err e64
+      | null err  -> undefined -- measure e64
+      | otherwise -> Left $ SGXELFError (show err)
+    ElfHeaderError _ e -> Left $ SGXELFError (show e)
 
 
--- measureEnclave :: B.ByteString -> Either SGXELFError (Digest SHA256)
--- measureEnclave bs =
---   case parseElf bs of
---     Elf32Res err e32
---       | null err  -> measure e32
---       | otherwise -> Left $ SGXELFError (show err)
---     Elf64Res err e64
---       | null err  -> measure e64
---       | otherwise -> Left $ SGXELFError (show err)
---     ElfHeaderError _ e -> Left $ SGXELFError (show e)
+findPT_LOAD ::  Elf w -> [ElfSegment  w]
+findPT_LOAD e = filter (\x -> elfSegmentType x == PT_LOAD) (elfSegments e)
 
+findPT_TLS :: Elf w -> [(ElfSegment w)]
+findPT_TLS e = filter (\x -> elfSegmentType x == PT_TLS) (elfSegments e)
 
--- findPT_LOAD ::  Elf w -> [ElfSegment  w]
--- findPT_LOAD e = filter (\x -> elfSegmentType x == PT_LOAD) (elfSegments e)
-
--- findPT_TLS :: Elf w -> [(ElfSegment w)]
--- findPT_TLS e = filter (\x -> elfSegmentType x == PT_TLS) (elfSegments e)
-
-
--- measure :: Elf w -> Either SGXELFError (Digest SHA256)
--- measure e = do
---   md <- processMetadata e
---   let
---     ssa_sz = metaSSAFrameSize md
---     enc_sz = metaEnclaveSize md
---     ecHash = measureEcreate ssa_sz enc_sz
---   return $! hashFinalize ecHash
-
-
--- Monadic Measurement
-
-data EnclaveImage = EnclaveImage {
-  metaData :: EnclaveMetadata
-  , imageData :: forall w. (Elf w)
+data ImageInfo = ImageInfo {
+  elfImageInfo :: forall w. Elf w
+  , metaInfo   :: EnclaveMetadata
+  , rawImage   :: B.ByteString
   }
 
-type MeasurementT h m a = S.StateT h                     -- Hash context
-                          (S.StateT [LayoutEntry]        -- remaining Layout to measure
-                           (R.ReaderT EnclaveImage m)) a -- Actual data
+type HashState h m a =
+  R.ReaderT ImageInfo (S.StateT h m) a
 
-getHashContext :: (Monad m) => MeasurementT h m h
-getHashContext = S.get
-putHashContext :: (Monad m) => h -> MeasurementT h m ()
-putHashContext = S.put
+getHashCtx :: (Monad m) => HashState h m h
+getHashCtx = T.lift S.get
 
-getImageMap  :: (Monad m) => MeasurementT h m [LayoutEntry]
-getImageMap = T.lift S.get
-putImageMap  :: (Monad m) => [LayoutEntry] -> MeasurementT h m ()
-putImageMap = T.lift . S.put
+putHashState :: (Monad m, HashAlgorithm h)
+  => (Context h)                  -- Updated context
+  -> HashState (Context h) m ()
+putHashState = T.lift . S.put
 
-askImageInfo  :: (Monad m) => MeasurementT h m EnclaveImage
-askImageInfo = T.lift $ T.lift R.ask
 
-readElfInfo  :: (Monad m) => forall w. (Elf w -> a) -> MeasurementT h m a
-readElfInfo f = T.lift $ T.lift $ R.reader ( f . imageData )
+updateManyHashState :: (Monad m, HashAlgorithm h)
+                => [B.ByteString]
+                -> HashState (Context h) m ()
+updateManyHashState ds = do
+  ctx <- getHashCtx
+  putHashState $! hashUpdates ctx ds
 
-readMetaInfo  :: (Monad m) => forall w. (EnclaveMetadata -> a) -> MeasurementT h m a
-readMetaInfo f = T.lift $ T.lift $ R.reader ( f . metaData )
 
-{-
-measureEcreate :: Word32         -- ssa_frame_size
-               -> Word64         -- enclave size
-               -> Context SHA256 -- hash context
-measureEcreate ssa_len enc_sz = hashUpdates shaState ecreateData
+updateHashState :: (Monad m, HashAlgorithm h)
+                => B.ByteString
+                -> HashState (Context h) m ()
+updateHashState bs = do
+  ctx <- getHashCtx
+  putHashState $! hashUpdate ctx bs
+
+
+askRawSlice :: (Monad m)
+            => Word64   -- Start offset
+            -> Word64   -- size of slice
+            -> HashState h m B.ByteString
+askRawSlice off sz = do
+  imgInfo <- R.ask
+  pure $ bsSlice off sz $ rawImage imgInfo
+
+
+askElf :: (Monad m)
+       => HashState h m (Elf w)
+askElf = fmap elfImageInfo R.ask
+
+
+askMeta :: (Monad m)
+        => HashState h m EnclaveMetadata
+askMeta = fmap metaInfo R.ask
+
+
+readElf :: (Monad m)
+            => (Elf w -> a)
+            -> HashState h m a
+readElf fn = R.reader  (fn . elfImageInfo)
+
+
+readMeta :: (Monad m)
+             => (EnclaveMetadata -> a)
+             -> HashState h m a
+readMeta fn = R.reader (fn . metaInfo)
+
+
+ecreate :: (Monad m, HashAlgorithm h)
+        => HashState (Context h) m ()
+ecreate = do
+  ctx <- getHashCtx
+  ssa_sz <- readMeta metaSSAFrameSize
+  enc_sz <- readMeta metaEnclaveSize
+  updateManyHashState $ L.toChunks $ ecreateDataBlock ssa_sz enc_sz
+
+
+eadd :: (Monad m, HashAlgorithm h)
+     => Word64         -- offset
+     -> SecInfo        -- SecInfo flags
+     -> HashState (Context h) m ()
+eadd off sec = do
+  ctx <- getHashCtx
+  updateManyHashState $ L.toChunks $ eaddDataBlock off sec
+
+eextend :: (Monad m, HashAlgorithm h)
+        => Word64          -- Page Offset
+        -> B.ByteString    -- Data content
+        -> HashState (Context h) m ()
+eextend off bs = go 0
   where
-    shaState :: Context SHA256
-    shaState = hashInitWith SHA256
-    ecreateData :: [B.ByteString]
-    ecreateData = L.toChunks $! ecreateDataBlock ssa_len enc_sz
--}
+    go :: (Monad m, HashAlgorithm h)
+      => Word64
+      -> HashState (Context h) m ()
+    go consumed
+      | consumed >= mPageSize = return ()
+      | otherwise             = do
+          let chunk = bsSlice consumed mEextendStep bs
+              hdr   = eextendHdrBlock (off + consumed)
+              tbhData = L.append hdr (L.fromChunks [chunk])
+          ctx <- getHashCtx
+          updateManyHashState $ L.toChunks $ tbhData
+          go (consumed + mEextendStep)
 
-measureEcreate :: (Monad m, HashAlgorithm h) => MeasurementT (Context h) m ()
-measureEcreate = do
-  ssa_len <- readMetaInfo metaSSAFrameSize
-  enc_sz  <- readMetaInfo metaEnclaveSize
-  let ctx = hashInit
-      ecreate_data = L.toChunks $! ecreateDataBlock ssa_len enc_sz
-  putHashContext $ hashUpdates ctx ecreate_data
 
-{-
-measureEadd :: Context SHA256 -- SHA256 context
-            -> Word64         -- Offset
-            -> SecInfo        -- SecInfo
-            -> Context SHA256 -- output hash state
-measureEadd shaState off sec = hashUpdates shaState $! eaddData
+segmentFlagsToSIFlags ::  ElfSegmentFlags -> SecInfo
+segmentFlagsToSIFlags (ElfSegmentFlags w) = SecInfo flags
   where
-    eaddData :: [B.ByteString]
-    eaddData = L.toChunks $! eaddDataBlock off sec
+    m :: (Num a, Bits a) => [(a, SecInfoFlags)]
+    m = [ (0, SI_FLAG_X)
+        , (1, SI_FLAG_W)
+        , (2, SI_FLAG_R)]
+
+    flags :: [SecInfoFlags]
+    flags = fmap snd $
+      filter (\(x,y) -> w .&. (1 `shiftL` x) /= 0) m
 
 
-measureEadd :: (Monad m, HashAlgorithm h) => MeasurementT (Context h) m ()
-measureEadd = do
-  ctx <- getHashContext
+measureSegment :: (Monad m, HashAlgorithm h)
+               => ElfSegment w
+               -> HashState (Context h) m ()
+measureSegment seg = do
+  let sf  = segmentFlagsToSIFlags $ elfSegmentFlags seg
+      rva = elfSegmentVirtAddr seg
+      msz = elfSegmentMemSize  seg
+      bs  = undefined
+  return ()
 
--}
+
+measureImage :: (Monad m, HashAlgorithm h)
+             => HashState (Context h) m ()
+measureImage = do
+  segs <- fmap findPT_LOAD askElf
+  mapM_ measureSegment segs

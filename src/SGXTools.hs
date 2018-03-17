@@ -39,7 +39,9 @@ main = do
     printMrEnclave :: Handle -> IO ()
     printMrEnclave fd = do
       hash <- fmap measureEnclave (B.hGetContents fd)
-      putStrLn $ "Enclave HASH : 0x" ++ (show hash)
+      putStrLn $ "Enclave HASH : 0x"
+
+    measureEnclave = undefined
 
     printElfInfo   :: Bool -- Show layout
                    -> Bool -- Show Path Dit
