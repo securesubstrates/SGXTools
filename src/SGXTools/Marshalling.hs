@@ -339,6 +339,7 @@ getLayout = do
         , lentryOps = lops
         , lentryPageCount = lpCount
         , lentryRVA = lpRVA
+        , lentryContent = B.empty
         , lentryContentSz = lpContSz
         , lentryContentOff = lpContOff
         , lentryPermFlags = extractFlags (perm .&. 0xff9f) -- bit 6-7 zero

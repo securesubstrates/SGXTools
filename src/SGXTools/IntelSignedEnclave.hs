@@ -1,9 +1,15 @@
-{-# LANGUAGE RankNTypes        #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TypeFamilies              #-}
+
 module SGXTools.IntelSignedEnclave where
 
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as L
+import qualified Control.Monad.State.Strict as S
+import qualified Control.Monad.Reader       as R
+import qualified Control.Monad.Trans        as T
 import           Control.Monad (replicateM_)
 import           Crypto.Hash
 import           SGXTools.Types
@@ -41,12 +47,22 @@ bsSlice :: (Integral a) => a -- offset
         -> B.ByteString
 bsSlice off sz = (B.take (fromIntegral sz)) . (B.drop (fromIntegral off))
 
+
+extractLayoutData :: B.ByteString  -- raw metadata from start
+                  -> LayoutEntry   -- Input Layout entry
+                  -> LayoutEntry   -- Updated Layout Entry
+extractLayoutData bs l@(LayoutEntry _ _ _ _ _ sz off _)
+  | off == 0  = l
+  | otherwise = l { lentryContent = bsSlice off sz bs }
+extractLayoutData bs l = l  -- For Layout group
+
 extractPatchData :: B.ByteString -- raw metadata from start
                  -> PatchEntry   -- Input patch entry
                  -> PatchEntry   -- output patch entry
 extractPatchData bs p@(PatchEntry _ src sz _) =
   p{ patchData = B.take (fromIntegral sz) $!
                  B.drop (fromIntegral src) bs }
+
 
 parseLayoutAndPatches :: B.ByteString     -- raw metadata from start
                       -> EnclaveMetadata  -- parsed metadata
@@ -64,7 +80,7 @@ parseLayoutAndPatches bs md = do
   l <- case runGetOrFail getLayouts layoutSlice of
          Left(_,_, s)   -> Left (SGXELFError $
                                   "Failed to parse Layout: " ++s )
-         Right (_,_, m) -> Right m
+         Right (_,_, m) -> Right $! fmap (extractLayoutData bs) m
   return $! md { metaPatches = p, metaLayouts = l }
 
 
@@ -126,11 +142,11 @@ formatKVPDoc c xs =
                              colon <+> value
     innerDoc =
       foldr (\(k,v) ->
-                \y ->
-                  paddedStr (k, v) <> linebreak <> y) empty xs
+                \y -> paddedStr (k, v) <> linebreak <> y) empty xs
   in
-    lbrace <> linebreak <>
-    indent 2 innerDoc   <>
+    lbrace                <>
+    linebreak             <>
+    indent 2 innerDoc     <>
     indent (-2) linebreak <>
     rbrace
 
@@ -258,16 +274,19 @@ ppPatches c = list . fmap (ppPatch c)
 ppLayout :: Bool
          -> LayoutEntry
          -> Doc
-ppLayout c (LayoutEntry id ops count rva csz coff perm) =
-  formatKVPDoc c [
+ppLayout c (LayoutEntry id ops count rva co csz coff perm) =
+  formatKVPDoc c $! [
   ("Layout ID", show2Doc id)
   , ("Layout Ops", show2Doc ops)
-  , ("Page Count", show2Doc count)
   , ("Layout RVA", text $! hexNumber rva)
+  , ("Page Count", show2Doc count)
   , ("Content Size", show2Doc csz)
   , ("Content Off", show2Doc coff)
+  , ("Content", show2Doc $ toHexRep $ L.fromChunks [co])
   , ("Permissions", list (fmap (\x -> show2Doc x) perm))
   ]
+
+
 ppLayout c (LayoutGroup id lcount ltimes lstep _) =
   formatKVPDoc c [
   ("Group ID", show2Doc id)
@@ -363,7 +382,7 @@ eextendDataBlock w = runPut eextendBuilder
       putWord64le   w
       replicateM_ (mDataBlockSize - 8 - 8) $! (putWord8 0)
 
-
+{-
 measureEcreate :: Word32         -- ssa_frame_size
                -> Word64         -- enclave size
                -> Context SHA256 -- hash context
@@ -373,8 +392,8 @@ measureEcreate ssa_len enc_sz = hashUpdates shaState ecreateData
     shaState = hashInitWith SHA256
     ecreateData :: [B.ByteString]
     ecreateData = L.toChunks $! ecreateDataBlock ssa_len enc_sz
-
-
+-}
+{-
 measureEadd :: Context SHA256 -- SHA256 context
             -> Word64         -- Offset
             -> SecInfo        -- SecInfo
@@ -383,6 +402,8 @@ measureEadd shaState off sec = hashUpdates shaState $! eaddData
   where
     eaddData :: [B.ByteString]
     eaddData = L.toChunks $! eaddDataBlock off sec
+
+-}
 
 measureExtendPage :: Context SHA256 -- SHA256 context
                   -> Word32         -- Page offset
@@ -409,30 +430,98 @@ measureExtendPage shaState off bs = mep 0 shaState
                      hashUpdates h (dataToHashWithHdr c)
 
 
-measureEnclave :: B.ByteString -> Either SGXELFError (Digest SHA256)
-measureEnclave bs =
-  case parseElf bs of
-    Elf32Res err e32
-      | null err  -> measure e32
-      | otherwise -> Left $ SGXELFError (show err)
-    Elf64Res err e64
-      | null err  -> measure e64
-      | otherwise -> Left $ SGXELFError (show err)
-    ElfHeaderError _ e -> Left $ SGXELFError (show e)
+-- measureEnclave :: B.ByteString -> Either SGXELFError (Digest SHA256)
+-- measureEnclave bs =
+--   case parseElf bs of
+--     Elf32Res err e32
+--       | null err  -> measure e32
+--       | otherwise -> Left $ SGXELFError (show err)
+--     Elf64Res err e64
+--       | null err  -> measure e64
+--       | otherwise -> Left $ SGXELFError (show err)
+--     ElfHeaderError _ e -> Left $ SGXELFError (show e)
 
 
-findPT_LOAD ::  Elf w -> [ElfSegment  w]
-findPT_LOAD e = filter (\x -> elfSegmentType x == PT_LOAD) (elfSegments e)
+-- findPT_LOAD ::  Elf w -> [ElfSegment  w]
+-- findPT_LOAD e = filter (\x -> elfSegmentType x == PT_LOAD) (elfSegments e)
 
-findPT_TLS :: Elf w -> [(ElfSegment w)]
-findPT_TLS e = filter (\x -> elfSegmentType x == PT_TLS) (elfSegments e)
+-- findPT_TLS :: Elf w -> [(ElfSegment w)]
+-- findPT_TLS e = filter (\x -> elfSegmentType x == PT_TLS) (elfSegments e)
 
 
-measure :: Elf w -> Either SGXELFError (Digest SHA256)
-measure e = do
-  md <- processMetadata e
-  let
-    ssa_sz = metaSSAFrameSize md
-    enc_sz = metaEnclaveSize md
-    ecHash = measureEcreate ssa_sz enc_sz
-  return $! hashFinalize ecHash
+-- measure :: Elf w -> Either SGXELFError (Digest SHA256)
+-- measure e = do
+--   md <- processMetadata e
+--   let
+--     ssa_sz = metaSSAFrameSize md
+--     enc_sz = metaEnclaveSize md
+--     ecHash = measureEcreate ssa_sz enc_sz
+--   return $! hashFinalize ecHash
+
+
+-- Monadic Measurement
+
+data EnclaveImage = EnclaveImage {
+  metaData :: EnclaveMetadata
+  , imageData :: forall w. (Elf w)
+  }
+
+type MeasurementT h m a = S.StateT h                     -- Hash context
+                          (S.StateT [LayoutEntry]        -- remaining Layout to measure
+                           (R.ReaderT EnclaveImage m)) a -- Actual data
+
+getHashContext :: (Monad m) => MeasurementT h m h
+getHashContext = S.get
+putHashContext :: (Monad m) => h -> MeasurementT h m ()
+putHashContext = S.put
+
+getImageMap  :: (Monad m) => MeasurementT h m [LayoutEntry]
+getImageMap = T.lift S.get
+putImageMap  :: (Monad m) => [LayoutEntry] -> MeasurementT h m ()
+putImageMap = T.lift . S.put
+
+askImageInfo  :: (Monad m) => MeasurementT h m EnclaveImage
+askImageInfo = T.lift $ T.lift R.ask
+
+readElfInfo  :: (Monad m) => forall w. (Elf w -> a) -> MeasurementT h m a
+readElfInfo f = T.lift $ T.lift $ R.reader ( f . imageData )
+
+readMetaInfo  :: (Monad m) => forall w. (EnclaveMetadata -> a) -> MeasurementT h m a
+readMetaInfo f = T.lift $ T.lift $ R.reader ( f . metaData )
+
+{-
+measureEcreate :: Word32         -- ssa_frame_size
+               -> Word64         -- enclave size
+               -> Context SHA256 -- hash context
+measureEcreate ssa_len enc_sz = hashUpdates shaState ecreateData
+  where
+    shaState :: Context SHA256
+    shaState = hashInitWith SHA256
+    ecreateData :: [B.ByteString]
+    ecreateData = L.toChunks $! ecreateDataBlock ssa_len enc_sz
+-}
+
+measureEcreate :: (Monad m, HashAlgorithm h) => MeasurementT (Context h) m ()
+measureEcreate = do
+  ssa_len <- readMetaInfo metaSSAFrameSize
+  enc_sz  <- readMetaInfo metaEnclaveSize
+  let ctx = hashInit
+      ecreate_data = L.toChunks $! ecreateDataBlock ssa_len enc_sz
+  putHashContext $ hashUpdates ctx ecreate_data
+
+{-
+measureEadd :: Context SHA256 -- SHA256 context
+            -> Word64         -- Offset
+            -> SecInfo        -- SecInfo
+            -> Context SHA256 -- output hash state
+measureEadd shaState off sec = hashUpdates shaState $! eaddData
+  where
+    eaddData :: [B.ByteString]
+    eaddData = L.toChunks $! eaddDataBlock off sec
+
+
+measureEadd :: (Monad m, HashAlgorithm h) => MeasurementT (Context h) m ()
+measureEadd = do
+  ctx <- getHashContext
+
+-}

@@ -511,10 +511,10 @@ data LayoutEntry =
   LayoutEntry {
     lentryID        :: !LayoutIdentity
   , lentryOps       :: [LayoutOperations]
-  , lentryPageCount :: !Word32 -- map size in page
+  , lentryPageCount :: !Word32 -- map size as number of pages
   , lentryRVA       :: !Word64 -- map offset relative
                                -- to enclave base
-
+  , lentryContent   :: B.ByteString -- Content if any
   , lentryContentSz :: !Word32 -- Content size or
                                -- value to fill page
 
