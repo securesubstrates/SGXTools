@@ -8,12 +8,14 @@
 
 module SGXTools.IntelSignedEnclave where
 
+import qualified Data.ByteArray       as BA
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as L
 import qualified Control.Monad.State.Strict as S
 import qualified Control.Monad.Reader       as R
 import qualified Control.Monad.Trans        as T
-import           Control.Monad (replicateM_, forM_)
+import qualified Data.Vector                as V
+import           Control.Monad (replicateM_, forM_, when)
 import           Crypto.Hash
 import           SGXTools.Types
 import           SGXTools.Marshalling
@@ -25,6 +27,7 @@ import           Data.Bits
 import           Data.ElfEdit
 import           Text.Printf (printf, PrintfArg)
 import           Text.PrettyPrint.ANSI.Leijen
+import           Debug.Trace
 
 
 data SGXELFError = SGXELFError String deriving (Show)
@@ -422,14 +425,14 @@ measureExtendPage shaState off bs = mep 0 shaState
                      hashUpdates h (dataToHashWithHdr c)
 -}
 
-measureEnclave :: B.ByteString -> Either SGXELFError (Digest SHA256)
+measureEnclave :: B.ByteString -> Either SGXELFError B.ByteString
 measureEnclave bs =
   case parseElf bs of
     Elf32Res err e32
       | null err  -> undefined -- measure e32
       | otherwise -> Left $ SGXELFError (show err)
     Elf64Res err e64
-      | null err  -> undefined -- measure e64
+      | null err  -> measureEnclave64 e64 bs
       | otherwise -> Left $ SGXELFError (show err)
     ElfHeaderError _ e -> Left $ SGXELFError (show e)
 
@@ -453,7 +456,7 @@ findPT_TLS e = filter isTLS $ phdrList e
 
 
 data ImageInfo = ImageInfo {
-  elfImageInfo :: forall w. Elf w
+  elfImageInfo :: (Elf 64)
   , metaInfo   :: EnclaveMetadata
   , rawImage   :: B.ByteString
   }
@@ -500,7 +503,7 @@ askRawSlice off sz = do
   pure $ bsSlice off sz $ rawImage imgInfo
 
 askElf :: (Monad m)
-       => HashState h m (Elf w)
+       => HashState h m (Elf 64)
 askElf = fmap elfImageInfo R.ask
 
 
@@ -510,7 +513,7 @@ askMeta = fmap metaInfo R.ask
 
 
 readElf :: (Monad m)
-            => (Elf w -> a)
+            => (Elf 64 -> a)
             -> HashState h m a
 readElf fn = R.reader  (fn . elfImageInfo)
 
@@ -524,7 +527,6 @@ readMeta fn = R.reader (fn . metaInfo)
 ecreate :: (Monad m, HashAlgorithm h)
         => HashState (Context h) m ()
 ecreate = do
-  ctx <- getHashCtx
   ssa_sz <- readMeta metaSSAFrameSize
   enc_sz <- readMeta metaEnclaveSize
   updateManyHashState $ L.toChunks $
@@ -536,9 +538,9 @@ eadd :: (Monad m, HashAlgorithm h)
      -> SecInfo        -- SecInfo flags
      -> HashState (Context h) m ()
 eadd off sec = do
-  ctx <- getHashCtx
   updateManyHashState $ L.toChunks $
     eaddDataBlock off sec
+
 
 eextend :: (Monad m, HashAlgorithm h)
         => Word64          -- Page Offset
@@ -556,7 +558,6 @@ eextend off bs = go 0
               hdr   = eextendHdrBlock (off + consumed)
               tbhData = L.append hdr
                         (L.fromChunks [chunk])
-          ctx <- getHashCtx
           updateManyHashState $ L.toChunks $ tbhData
           go (consumed + mEextendStep)
 
@@ -583,10 +584,51 @@ data SI w = SI {
   }
 
 
+isInPatchRange :: Word64     -- rva
+               -> Word64     -- size
+               -> PatchEntry -- Whole patch entry
+               -> Bool
+isInPatchRange off sz pd =
+  let
+    dst = patchDest pd
+  in
+    (off <= dst) && (dst < (off + sz))
+{-# INLINE isInPatchRange #-}
+
+
+patchSegment :: Word64
+             -> [PatchEntry]
+             -> B.ByteString
+             -> B.ByteString
+patchSegment rva pe src =
+  foldr (\ p b ->
+            patchWhole (patchDest p)
+                       (patchSize p)
+                       (patchData p)
+                       b
+        ) src ps'
+  where
+    ps' :: [PatchEntry]
+    ps' = filter (isInPatchRange rva (fromIntegral $ B.length src) ) pe
+
+    patchWhole :: Word64    -- patch destination RVA
+               -> Word32    -- Patch size
+               -> B.ByteString -- Patch contents
+               -> B.ByteString -- Whole data
+               -> B.ByteString -- output
+    patchWhole dst sz c1 bs =
+      let
+        c0 = B.take (fromIntegral (dst - rva)) bs
+        c2 = B.drop (fromIntegral (dst - rva + fromIntegral sz)) bs
+      in
+        B.concat [c0 `seq` c0 , c1 `seq` c1 , c2 `seq` c2]
+
+
 getSegmentData64 :: (Phdr 64)
-               -> B.ByteString
-               -> (SI 64)
-getSegmentData64 phdr raw =
+                 -> [PatchEntry]
+                 -> B.ByteString
+                 -> (SI 64)
+getSegmentData64 phdr pe raw =
   let
     seg :: (ElfSegment 64)
     seg = phdrSegment phdr
@@ -602,7 +644,12 @@ getSegmentData64 phdr raw =
     virtOff = elfSegmentVirtAddr seg
 
     virtSz  :: (ElfWordType 64)
-    virtSz = phdrMemSize phdr
+    virtSz = let msz = phdrMemSize phdr
+                 (q,r) = msz `divMod` mPageSize
+             in
+               if r > 0
+               then (q+1)*mPageSize
+               else q*mPageSize
 
     fileSz :: (ElfWordType 64)
     fileSz = phdrFileSize phdr
@@ -612,32 +659,124 @@ getSegmentData64 phdr raw =
               then fromIntegral (virtSz - fileSz)
               else 0
 
-    slice :: B.ByteString
-    slice = B.append (bsSlice fileOff fileSz raw) $
-             (B.replicate padding 0)
-
     pageCount :: Word64
     pageCount = fromIntegral $
                  (B.length slice) `div` mPageSize
+
+    slice :: B.ByteString
+    slice = B.append (bsSlice fileOff fileSz raw) $
+             (B.replicate padding 0)
   in SI {
-    siData      = slice
+    siData      = patchSegment virtOff pe (slice `seq` slice)
     , pageCount = pageCount
     , pageOff   = virtOff
     , flags     = f
     }
 
+
 measureSegment64 :: (Monad m, HashAlgorithm h)
-               => (Phdr 64)
-               -> HashState (Context h) m ()
+                 => (Phdr 64)
+                 -> HashState (Context h) m ()
 measureSegment64 phdr = do
-  si <- fmap (getSegmentData64 phdr) askRawImage
+  pd <- readMeta metaPatches
+  si <- fmap (getSegmentData64 phdr pd) askRawImage
   forM_ [0.. (pageCount si) - 1] $ \ i -> do
     eadd (pageOff si) (flags si)
     eextend (pageOff si) (siData si)
+
+
+constantPage :: Word32 -- Data to fill
+             -> B.ByteString
+constantPage w =
+  L.toStrict $! runPut $!
+  replicateM_ (mPageSize `div` 4) $ putWord32le w
+
+
+constantData8 :: Int
+             -> Word8
+             -> B.ByteString
+constantData8 c x = B.pack $ replicate c x
+
+
+measureConstLayout :: (Monad m, HashAlgorithm h)
+                   => LayoutEntry
+                   -> HashState (Context h) m ()
+measureConstLayout
+  (LayoutEntry _ ops count rva _ sz d si) = do
+
+  let
+    pageData :: B.ByteString
+    pageData = constantPage sz
+
+  when (d /= 0) (fail "Invalid const Layout")
+
+  forM_ [0 .. count - 1 ] $ \ i -> do
+    let va = rva + mPageSize * fromIntegral i
+    eadd va (SecInfo si)
+    when (E_EXTEND `elem` ops) (eextend va pageData)
+
+
+measureContentLayout :: (Monad m, HashAlgorithm h)
+                     => LayoutEntry
+                     -> HashState (Context h) m ()
+measureContentLayout
+  (LayoutEntry _ ops count rva c sz _ si) = do
+  let
+    firstPage :: B.ByteString
+    firstPage =
+      B.append c (constantData8 (fromIntegral (mPageSize - sz)) 0)
+
+    restPage :: B.ByteString
+    restPage = constantData8 mPageSize 0
+
+  forM_ [0 .. count - 1] $ \ i -> do
+    let va = rva + mPageSize * fromIntegral i
+    eadd va (SecInfo si)
+    when (E_EXTEND `elem` ops) $ do
+      if (i == 1)
+        then (eextend va firstPage)
+        else (eextend va restPage)
+
+
+measureLayout :: (Monad m, HashAlgorithm h)
+              => LayoutEntry
+              -> HashState (Context h) m ()
+measureLayout l@(LayoutEntry lid ops _ _ _ _ off perm)
+  | lid == LAYOUT_ID_GUARD        = return ()
+  | lid == LAYOUT_ID_ELF_SEGMENT  = return ()
+  | perm == []                    = return ()
+  | (E_ADD `notElem` ops)         = return ()
+  | off == 0                      = measureConstLayout l
+  | otherwise                     = measureContentLayout l
+
+numberEntry :: [LayoutEntry] -> V.Vector (Word16, LayoutEntry)
+numberEntry ls = V.fromList $! zipWith (\ i l -> (i, l)) [1..] ls
+
+
+measureLayouts :: (Monad m, HashAlgorithm h)
+               => HashState (Context h) m ()
+measureLayouts = do
+  nl <- fmap numberEntry (readMeta metaLayouts)
+  forM_ nl $ \(index, layout) -> do
+    case layout of
+      (LayoutGroup lid count time _ _) -> do
+        forM_ [1..time] $ \_ -> do
+          forM_ [index-count-1 .. index-1] $ \j ->
+            measureLayout $ snd (nl V.! (fromIntegral j))
+      _ -> measureLayout layout
 
 
 measureImage64 :: (Monad m, HashAlgorithm h)
              => HashState (Context h) m ()
 measureImage64 = do
   pt_load <- fmap findPT_LOAD askElf
+  ecreate
   mapM_ measureSegment64 pt_load
+
+
+measureEnclave64 :: Elf 64 -> B.ByteString -> Either SGXELFError B.ByteString
+measureEnclave64 e bs = do
+  meta <- processMetadata e
+  let io = ImageInfo e meta bs
+  hash <- S.execStateT (R.runReaderT measureImage64 io) (hashInitWith SHA256)
+  return $ BA.convert $ hashFinalize hash

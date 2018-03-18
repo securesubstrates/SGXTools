@@ -38,10 +38,14 @@ main = do
   where
     printMrEnclave :: Handle -> IO ()
     printMrEnclave fd = do
-      hash <- fmap measureEnclave (B.hGetContents fd)
-      putStrLn $ "Enclave HASH : 0x"
+      either showError showMrEnclave =<< fmap measureEnclave (B.hGetContents fd)
 
-    measureEnclave = undefined
+    showMrEnclave :: B.ByteString -> IO ()
+    showMrEnclave mr = putStrLn $ "MrEnclave: 0x" ++ toHexRep (L.fromChunks [mr])
+
+    showError :: SGXELFError -> IO ()
+    showError (SGXELFError m) = putStrLn $ "Error: " ++ m
+
 
     printElfInfo   :: Bool -- Show layout
                    -> Bool -- Show Path Dit

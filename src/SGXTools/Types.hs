@@ -56,7 +56,7 @@ data PageInfo = PageInfo {
 
 newtype SecInfo = SecInfo {
   secInfoFlags :: [SecInfoFlags]
-  }
+  } deriving (Show)
 
 
 data PageType = PT_SECS
