@@ -1,7 +1,10 @@
 {-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE DataKinds                 #-}
 {-# LANGUAGE OverloadedStrings         #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE GADTs                     #-}
 
 module SGXTools.IntelSignedEnclave where
 
@@ -10,7 +13,7 @@ import qualified Data.ByteString.Lazy as L
 import qualified Control.Monad.State.Strict as S
 import qualified Control.Monad.Reader       as R
 import qualified Control.Monad.Trans        as T
-import           Control.Monad (replicateM_)
+import           Control.Monad (replicateM_, forM_)
 import           Crypto.Hash
 import           SGXTools.Types
 import           SGXTools.Marshalling
@@ -431,11 +434,23 @@ measureEnclave bs =
     ElfHeaderError _ e -> Left $ SGXELFError (show e)
 
 
-findPT_LOAD ::  Elf w -> [ElfSegment  w]
-findPT_LOAD e = filter (\x -> elfSegmentType x == PT_LOAD) (elfSegments e)
+phdrList :: Elf w -> [Phdr w]
+phdrList = allPhdrs . elfLayout
 
-findPT_TLS :: Elf w -> [(ElfSegment w)]
-findPT_TLS e = filter (\x -> elfSegmentType x == PT_TLS) (elfSegments e)
+
+findPT_LOAD ::  Elf w -> [Phdr  w]
+findPT_LOAD e = filter isLOAD $ phdrList e
+  where
+    isLOAD :: Phdr w -> Bool
+    isLOAD h = (PT_LOAD == elfSegmentType (phdrSegment h))
+
+
+findPT_TLS :: Elf w -> [Phdr w]
+findPT_TLS e = filter isTLS $ phdrList e
+  where
+    isTLS :: Phdr w -> Bool
+    isTLS h = PT_TLS == elfSegmentType (phdrSegment h)
+
 
 data ImageInfo = ImageInfo {
   elfImageInfo :: forall w. Elf w
@@ -471,6 +486,11 @@ updateHashState bs = do
   putHashState $! hashUpdate ctx bs
 
 
+askRawImage :: (Monad m) =>
+            HashState h m B.ByteString
+askRawImage = fmap rawImage R.ask
+
+
 askRawSlice :: (Monad m)
             => Word64   -- Start offset
             -> Word64   -- size of slice
@@ -478,7 +498,6 @@ askRawSlice :: (Monad m)
 askRawSlice off sz = do
   imgInfo <- R.ask
   pure $ bsSlice off sz $ rawImage imgInfo
-
 
 askElf :: (Monad m)
        => HashState h m (Elf w)
@@ -508,7 +527,8 @@ ecreate = do
   ctx <- getHashCtx
   ssa_sz <- readMeta metaSSAFrameSize
   enc_sz <- readMeta metaEnclaveSize
-  updateManyHashState $ L.toChunks $ ecreateDataBlock ssa_sz enc_sz
+  updateManyHashState $ L.toChunks $
+    ecreateDataBlock ssa_sz enc_sz
 
 
 eadd :: (Monad m, HashAlgorithm h)
@@ -517,11 +537,12 @@ eadd :: (Monad m, HashAlgorithm h)
      -> HashState (Context h) m ()
 eadd off sec = do
   ctx <- getHashCtx
-  updateManyHashState $ L.toChunks $ eaddDataBlock off sec
+  updateManyHashState $ L.toChunks $
+    eaddDataBlock off sec
 
 eextend :: (Monad m, HashAlgorithm h)
         => Word64          -- Page Offset
-        -> B.ByteString    -- Data content
+        -> B.ByteString    -- Page Data content
         -> HashState (Context h) m ()
 eextend off bs = go 0
   where
@@ -533,14 +554,16 @@ eextend off bs = go 0
       | otherwise             = do
           let chunk = bsSlice consumed mEextendStep bs
               hdr   = eextendHdrBlock (off + consumed)
-              tbhData = L.append hdr (L.fromChunks [chunk])
+              tbhData = L.append hdr
+                        (L.fromChunks [chunk])
           ctx <- getHashCtx
           updateManyHashState $ L.toChunks $ tbhData
           go (consumed + mEextendStep)
 
 
 segmentFlagsToSIFlags ::  ElfSegmentFlags -> SecInfo
-segmentFlagsToSIFlags (ElfSegmentFlags w) = SecInfo flags
+segmentFlagsToSIFlags (ElfSegmentFlags w) =
+  SecInfo flags
   where
     m :: (Num a, Bits a) => [(a, SecInfoFlags)]
     m = [ (0, SI_FLAG_X)
@@ -552,19 +575,69 @@ segmentFlagsToSIFlags (ElfSegmentFlags w) = SecInfo flags
       filter (\(x,y) -> w .&. (1 `shiftL` x) /= 0) m
 
 
-measureSegment :: (Monad m, HashAlgorithm h)
-               => ElfSegment w
+data SI w = SI {
+    siData :: B.ByteString
+  , pageCount :: Word64
+  , pageOff   :: ElfWordType w
+  , flags     :: SecInfo
+  }
+
+
+getSegmentData64 :: (Phdr 64)
+               -> B.ByteString
+               -> (SI 64)
+getSegmentData64 phdr raw =
+  let
+    seg :: (ElfSegment 64)
+    seg = phdrSegment phdr
+
+    f :: SecInfo
+    f = segmentFlagsToSIFlags $ elfSegmentFlags seg
+
+    fileOff :: (ElfWordType 64)
+    fileOff = case phdrFileStart phdr of
+                (FileOffset s) -> s
+
+    virtOff :: (ElfWordType 64)
+    virtOff = elfSegmentVirtAddr seg
+
+    virtSz  :: (ElfWordType 64)
+    virtSz = phdrMemSize phdr
+
+    fileSz :: (ElfWordType 64)
+    fileSz = phdrFileSize phdr
+
+    padding :: Int
+    padding = if virtSz > fileSz
+              then fromIntegral (virtSz - fileSz)
+              else 0
+
+    slice :: B.ByteString
+    slice = B.append (bsSlice fileOff fileSz raw) $
+             (B.replicate padding 0)
+
+    pageCount :: Word64
+    pageCount = fromIntegral $
+                 (B.length slice) `div` mPageSize
+  in SI {
+    siData      = slice
+    , pageCount = pageCount
+    , pageOff   = virtOff
+    , flags     = f
+    }
+
+measureSegment64 :: (Monad m, HashAlgorithm h)
+               => (Phdr 64)
                -> HashState (Context h) m ()
-measureSegment seg = do
-  let sf  = segmentFlagsToSIFlags $ elfSegmentFlags seg
-      rva = elfSegmentVirtAddr seg
-      msz = elfSegmentMemSize  seg
-      bs  = undefined
-  return ()
+measureSegment64 phdr = do
+  si <- fmap (getSegmentData64 phdr) askRawImage
+  forM_ [0.. (pageCount si) - 1] $ \ i -> do
+    eadd (pageOff si) (flags si)
+    eextend (pageOff si) (siData si)
 
 
-measureImage :: (Monad m, HashAlgorithm h)
+measureImage64 :: (Monad m, HashAlgorithm h)
              => HashState (Context h) m ()
-measureImage = do
-  segs <- fmap findPT_LOAD askElf
-  mapM_ measureSegment segs
+measureImage64 = do
+  pt_load <- fmap findPT_LOAD askElf
+  mapM_ measureSegment64 pt_load

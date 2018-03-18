@@ -121,7 +121,7 @@ data SigStruct = SigStruct{
   , ssIsvSvn              :: Word16                -- 2  bytes. Signed
   , ssReserved_byte1028_1039 :: L.ByteString       -- 12 bytes of zero. Not signed
   , ssQ1                     :: Integer            -- 384 bytes of Q1
-  , ssQ2                     :: Integer            -- 284 bytes of Q2
+  , ssQ2                     :: Integer            -- 384 bytes of Q2
   }deriving(Show)
 
 
