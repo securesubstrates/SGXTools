@@ -572,9 +572,8 @@ segmentFlagsToSIFlags (ElfSegmentFlags w) =
         , (2, SI_FLAG_R)]
 
     flags :: [SecInfoFlags]
-    flags = fmap snd $
-      filter (\(x,y) -> w .&. (1 `shiftL` x) /= 0) m
-
+    flags = SI_FLAG_REG : (fmap snd $
+      filter (\(x,y) -> w .&. (1 `shiftL` x) /= 0) m)
 
 data SI w = SI {
     siData :: B.ByteString
