@@ -55,8 +55,8 @@ Invalid option `-h'
 Did you mean this?
     -i
 
-    Usage: sgxTools measure (-i|--enclave ENCLAVE .SO FILENAME)
-      Recompute mrenclave
+Usage: sgxTools measure (-i|--enclave ENCLAVE .SO FILENAME)
+  Recompute mrenclave
 ```
 
 Sample ouput of recomputing the enclave's hash
