@@ -19,10 +19,23 @@ toolVersion = "0.0.0.1"
 data SGXToolsOpts = Version String
   | HexOptions String  {- Input file    -} -- Hexdump a file
   | EinitOption String {- Input file    -} -- Print einit token info
-  | ELFInfo String     {- Input file    -}
+  | ELFInfo String     {- Input file    -} -- Show enclave metadata
             Bool       {- show layout   -}
             Bool       {- show path     -}
             Bool       {- disable color -}
+  | Measure String     {- input file    -} -- Recompute mrenclave
+
+measureParser :: Parser SGXToolsOpts
+measureParser = Measure <$> strOption
+  (long "enclave"
+   <> short 'i'
+   <> metavar "ENCLAVE .SO FILENAME"
+   <> help "Recompute MrEnclave"
+  )
+
+measureOpts :: ParserInfo SGXToolsOpts
+measureOpts = info measureParser
+  (progDesc "Recompute mrenclave")
 
 elfInfoParser :: Parser SGXToolsOpts
 elfInfoParser = ELFInfo <$> strOption
@@ -36,7 +49,7 @@ elfInfoParser = ELFInfo <$> strOption
 
 elfOpts :: ParserInfo SGXToolsOpts
 elfOpts = info elfInfoParser
-  (progDesc "Disable enclave loading layout")
+  (progDesc "Display enclave metadata layout")
 
 versionParser :: Parser SGXToolsOpts
 versionParser = pure $ Version toolVersion
@@ -71,7 +84,8 @@ einitOpts = info einitParser
 
 totalParser :: Parser SGXToolsOpts
 totalParser = subparser $
-  command "enclaveInfo" elfOpts
+  command "measure" measureOpts
+  <> command "metaInfo" elfOpts
   <> command "einitInfo" einitOpts
   <> command "hexdump" hexOpts
   <> command "version" versionOpts

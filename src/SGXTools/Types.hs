@@ -2,6 +2,7 @@ module SGXTools.Types where
 
 import Text.Printf
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString      as B
 import           Data.Word (Word64, Word32, Word16, Word8)
 import           Data.Bits ((.&.), (.|.),
                             shiftL, shiftR,
@@ -53,21 +54,10 @@ data PageInfo = PageInfo {
   , pgSecs          :: Word64        -- Effective address of EPC slot that currently contains the SECS
   }
 
-data SecInfo = SecInfo {
-  siFlags       :: SecInfoFlags
-  }
+newtype SecInfo = SecInfo {
+  secInfoFlags :: [SecInfoFlags]
+  } deriving (Show)
 
-data SecInfoFlags = SecInfoFlags {
-  sifIsRead               :: Bool
-  , sifIsWrite            :: Bool
-  , sifIsExecute          :: Bool
-  , sifIsPending          :: Bool
-  , sifIsModified         :: Bool
-  , sifHasPermRestriction :: Bool
-  , sifReserved_bit6_7    :: Word8
-  , sifPageType           :: PageType
-  , sifReserved_bit16_64  :: Word64
-  }
 
 data PageType = PT_SECS
               | PT_TCS
@@ -131,7 +121,7 @@ data SigStruct = SigStruct{
   , ssIsvSvn              :: Word16                -- 2  bytes. Signed
   , ssReserved_byte1028_1039 :: L.ByteString       -- 12 bytes of zero. Not signed
   , ssQ1                     :: Integer            -- 384 bytes of Q1
-  , ssQ2                     :: Integer            -- 284 bytes of Q2
+  , ssQ2                     :: Integer            -- 384 bytes of Q2
   }deriving(Show)
 
 
@@ -266,7 +256,7 @@ data TCS = TCS {
   , tcsOGSBasSgx             :: Word64
   , tcsFSLimit               :: Word32
   , tcsGSLimit               :: Word32
-  , tcsReserved_byte72_4095  :: L.ByteString
+  --  , tcsReserved_byte72_4095  :: B.ByteString
   }
 
 data TCSFlags = TCSFlags {
@@ -481,10 +471,12 @@ data PatchEntry = PatchEntry
     patchDest    :: !Word64
   , patchSource  :: !Word32
   , patchSize    :: !Word32
+  , patchData    :: B.ByteString
   }deriving(Show)
 
 data LayoutIdentity =
-  LAYOUT_ID_HEAP_MIN
+  LAYOUT_ID_ELF_SEGMENT
+  | LAYOUT_ID_HEAP_MIN
   | LAYOUT_ID_HEAP_INIT
   | LAYOUT_ID_HEAP_MAX
   | LAYOUT_ID_TCS
@@ -504,6 +496,7 @@ data LayoutIdentity =
   -- groups
   | LAYOUT_ID_THREAD_GROUP
   | LAYOUT_ID_THREAD_GROUP_DYN
+  | LAYOUT_ID_UNKNOWN Int
   deriving(Eq, Show)
 
 data LayoutOperations =
@@ -520,17 +513,17 @@ data LayoutEntry =
   LayoutEntry {
     lentryID        :: !LayoutIdentity
   , lentryOps       :: [LayoutOperations]
-  , lentryPageCount :: !Word32 -- map size in page
+  , lentryPageCount :: !Word32 -- map size as number of pages
   , lentryRVA       :: !Word64 -- map offset relative
                                -- to enclave base
-
+  , lentryContent   :: B.ByteString -- Content if any
   , lentryContentSz :: !Word32 -- Content size or
                                -- value to fill page
 
   , lentryContentOff:: !Word32 -- Offset of initial
                                -- content relative
                                -- to metadata
-  , lentryPermFlags :: [PagePermissionFlags]
+  , lentryPermFlags :: [SecInfoFlags]
   } | LayoutGroup {
     lgrpID          :: !LayoutIdentity
   , lgrpEntryCount  :: !Word16
@@ -540,7 +533,7 @@ data LayoutEntry =
   }
   deriving(Show)
 
-extractFlags :: (Integral a, Enum b, Bits a) => a
+extractFlags :: (Integral a, Bits a, Enum b) => a
              -> [b]
 extractFlags w = extractOpts w 0 [] where
   extractOpts :: (Integral a, Enum b, Bits a) => a
@@ -556,7 +549,13 @@ extractFlags w = extractOpts w 0 [] where
                           then extractOpts w'' (n+1)
                                               (flag:ys)
                           else extractOpts w'' (n+1) ys
+{-# INLINE extractFlags #-}
 
+encodeFlags :: (Enum a, Integral b, Bits b)
+            => [a]
+            -> b
+encodeFlags = foldr (\ x y -> shiftL 1 (fromEnum x) .|. y) 0
+{-# INLINE encodeFlags #-}
 
 instance Enum LayoutOperations where
   toEnum 0 = E_ADD
@@ -577,6 +576,7 @@ instance Enum LayoutOperations where
   fromEnum E_GROWDOWN = 6
 
 instance Enum LayoutIdentity where
+  fromEnum LAYOUT_ID_ELF_SEGMENT   = 0
   fromEnum LAYOUT_ID_HEAP_MIN      = 1
   fromEnum LAYOUT_ID_HEAP_INIT     = 2
   fromEnum LAYOUT_ID_HEAP_MAX      = 3
@@ -596,7 +596,9 @@ instance Enum LayoutIdentity where
   fromEnum LAYOUT_ID_STACK_DYN_MAX    = 17
   fromEnum LAYOUT_ID_STACK_DYN_MIN    = 18
   fromEnum LAYOUT_ID_THREAD_GROUP_DYN = groupId 19
+  fromEnum (LAYOUT_ID_UNKNOWN x)   = x
 
+  toEnum 0 = LAYOUT_ID_ELF_SEGMENT
   toEnum 1 = LAYOUT_ID_HEAP_MIN
   toEnum 2 = LAYOUT_ID_HEAP_INIT
   toEnum 3 = LAYOUT_ID_HEAP_MAX
@@ -616,7 +618,7 @@ instance Enum LayoutIdentity where
   toEnum 18 = LAYOUT_ID_STACK_DYN_MIN
   toEnum x  | groupId 9  == x = LAYOUT_ID_THREAD_GROUP
             | groupId 19 == x = LAYOUT_ID_THREAD_GROUP_DYN
-  toEnum _  = undefined
+  toEnum y  = (LAYOUT_ID_UNKNOWN y)
 
 groupFlag :: Int
 groupFlag = 1 `shiftL` 12
@@ -630,7 +632,7 @@ isGroupId16 w = (groupFlag .&. (fromIntegral w)) /= 0
 isGroupId :: LayoutIdentity -> Bool
 isGroupId e = groupFlag .&. fromEnum e /= 0
 
-data PagePermissionFlags =
+data SecInfoFlags =
   SI_FLAG_R
   | SI_FLAG_W
   | SI_FLAG_X
@@ -646,7 +648,7 @@ data PagePermissionFlags =
   deriving(Show, Eq)
 
 
-instance Enum PagePermissionFlags where
+instance Enum SecInfoFlags where
   fromEnum SI_FLAG_R        = 0  -- These are bit positions
   fromEnum SI_FLAG_W        = 1
   fromEnum SI_FLAG_X        = 2

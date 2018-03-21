@@ -6,7 +6,7 @@
 module SGXTools.Marshalling where
 
 import SGXTools.Types
-import Control.Monad (unless)
+import Control.Monad (unless, replicateM_)
 import Text.Printf   (printf)
 import Data.Bits
 import Data.Binary
@@ -59,9 +59,9 @@ getAttributes = do
 
 putAttributes  :: Attributes -> Put
 putAttributes attr = do
-  put topByte
+  putWord8 topByte
   putPadBytes 7 0x0
-  put (attrXFRM attr)
+  putXFRM (attrXFRM attr)
     where
       topByte :: Word8
       topByte =
@@ -305,6 +305,7 @@ getPatch = do
       patchDest   = dest
     , patchSource = dsrc
     , patchSize   = psz
+    , patchData   = B.empty
     }
 
 getLayout :: Get LayoutEntry
@@ -338,6 +339,7 @@ getLayout = do
         , lentryOps = lops
         , lentryPageCount = lpCount
         , lentryRVA = lpRVA
+        , lentryContent = B.empty
         , lentryContentSz = lpContSz
         , lentryContentOff = lpContOff
         , lentryPermFlags = extractFlags (perm .&. 0xff9f) -- bit 6-7 zero
@@ -403,30 +405,70 @@ getMetadata = do
     }
 
 
-instance Binary EnclaveMetadata where
-  get = getMetadata
-  put = putMetadata
+putSecInfo :: SecInfo -> Put
+putSecInfo (SecInfo perm) = do
+  putWord64le flagWords
+  replicateM_ 7 $! putWord64le 0
+    where
+      flagWords :: Word64
+      flagWords = encodeFlags perm
 
-instance Binary MiscSelect where
-  put  = putMiscSelect
-  get  = getMiscSelect
+putTCSFlags :: TCSFlags -> Put
+putTCSFlags (TCSFlags debug _) =
+  if debug
+  then putWord64le 1
+  else putWord64le 0
 
-instance Binary CPUSVN where
-  get  = getCPUSVN
-  put  = putCPUSVN
+getTCSFlags :: Get TCSFlags
+getTCSFlags = do
+  w <- getWord64le
+  return $! TCSFlags {
+    tcsFlagsDebugOptIn = w /= 0
+    , tcsFlagsReserved_bit1_63 = 0
+    }
 
-instance Binary Attributes where
-  get = getAttributes
-  put = putAttributes
 
-instance Binary XFRM where
-  get = getXFRM
-  put = putXFRM
+putTCS :: TCS -> Put
+putTCS tcs = do
+  putWord64le 0
+  putTCSFlags (tcsFlags tcs)
+  putWord64le (tcsOSSA tcs)
+  putWord32le (tcsCSSA tcs)
+  putWord32le (tcsNSSA tcs)
+  putWord64le (tcsOentry tcs)
+  putWord64le (tcsAep tcs)
+  putWord64le (tcsOFSBasSgx tcs)
+  putWord64le (tcsOGSBasSgx tcs)
+  putWord32le (tcsFSLimit tcs)
+  putWord32le (tcsGSLimit tcs)
+--  putByteString $ B.replicate 4024 0
 
-instance Binary EInitToken where
-  get = getEInitToken
-  put = undefined
 
-instance Binary SigStruct where
-  get = getSigStruct
-  put = undefined
+getTCS :: Get TCS
+getTCS = do
+  res    <- getWord64le
+  tflags <- getTCSFlags
+  tossa  <- getWord64le
+  tcssa  <- getWord32le
+  tnssa  <- getWord32le
+  toentry <- getWord64le
+  taep    <- getWord64le
+  tfsbase <- getWord64le
+  tgsbase <- getWord64le
+  tfslimit <- getWord32le
+  tgslimit <- getWord32le
+--  bs       <- getByteString 4024
+  return $! TCS {
+    tcsReserved_byte0_7 = res
+    , tcsFlags = tflags
+    , tcsOSSA = tossa
+    , tcsCSSA = tcssa
+    , tcsNSSA = tnssa
+    , tcsOentry = toentry
+    , tcsAep = taep
+    , tcsOFSBasSgx = tfsbase
+    , tcsOGSBasSgx = tgsbase
+    , tcsFSLimit   = tfslimit
+    , tcsGSLimit   = tgslimit
+--    , tcsReserved_byte72_4095 = bs
+    }
