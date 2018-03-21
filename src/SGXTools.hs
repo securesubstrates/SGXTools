@@ -21,10 +21,18 @@ showMetadata :: Bool -- show layout
 showMetadata _ _ _ (Left err) = print err
 showMetadata l p c (Right m) = putDoc $! ppMetadata l p c m
 
+
+showMrEnclave :: B.ByteString -> IO ()
+showMrEnclave mr = putDoc $!
+                   (text "MRENCLAVE") <+> colon <+> (text "0x") <>
+                   (text (toHexRep (L.fromChunks [mr]))) <>
+                   linebreak
+
 showLaunchToken :: Bool
                 -> EInitToken
                 -> IO ()
 showLaunchToken c eit = putDoc $! ppEinitToken c eit
+
 
 main :: IO ()
 main = do
@@ -39,13 +47,6 @@ main = do
     printMrEnclave :: Handle -> IO ()
     printMrEnclave fd = do
       either showError showMrEnclave =<< fmap measureEnclave (B.hGetContents fd)
-
-    showMrEnclave :: B.ByteString -> IO ()
-    showMrEnclave mr = putStrLn $ "MrEnclave: 0x" ++ toHexRep (L.fromChunks [mr])
-
-    showError :: SGXELFError -> IO ()
-    showError (SGXELFError m) = putStrLn $ "Error: " ++ m
-
 
     printElfInfo   :: Bool -- Show layout
                    -> Bool -- Show Path Dit
@@ -70,3 +71,6 @@ main = do
     printVersion s = do
       prog <- getProgName
       putStrLn $ prog ++ " version -- " ++ s
+
+    showError :: SGXELFError -> IO ()
+    showError (SGXELFError m) = putStrLn $ "Error: " ++ m

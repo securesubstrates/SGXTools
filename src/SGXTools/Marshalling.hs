@@ -412,3 +412,63 @@ putSecInfo (SecInfo perm) = do
     where
       flagWords :: Word64
       flagWords = encodeFlags perm
+
+putTCSFlags :: TCSFlags -> Put
+putTCSFlags (TCSFlags debug _) =
+  if debug
+  then putWord64le 1
+  else putWord64le 0
+
+getTCSFlags :: Get TCSFlags
+getTCSFlags = do
+  w <- getWord64le
+  return $! TCSFlags {
+    tcsFlagsDebugOptIn = w /= 0
+    , tcsFlagsReserved_bit1_63 = 0
+    }
+
+
+putTCS :: TCS -> Put
+putTCS tcs = do
+  putWord64le 0
+  putTCSFlags (tcsFlags tcs)
+  putWord64le (tcsOSSA tcs)
+  putWord32le (tcsCSSA tcs)
+  putWord32le (tcsNSSA tcs)
+  putWord64le (tcsOentry tcs)
+  putWord64le (tcsAep tcs)
+  putWord64le (tcsOFSBasSgx tcs)
+  putWord64le (tcsOGSBasSgx tcs)
+  putWord32le (tcsFSLimit tcs)
+  putWord32le (tcsGSLimit tcs)
+--  putByteString $ B.replicate 4024 0
+
+
+getTCS :: Get TCS
+getTCS = do
+  res    <- getWord64le
+  tflags <- getTCSFlags
+  tossa  <- getWord64le
+  tcssa  <- getWord32le
+  tnssa  <- getWord32le
+  toentry <- getWord64le
+  taep    <- getWord64le
+  tfsbase <- getWord64le
+  tgsbase <- getWord64le
+  tfslimit <- getWord32le
+  tgslimit <- getWord32le
+--  bs       <- getByteString 4024
+  return $! TCS {
+    tcsReserved_byte0_7 = res
+    , tcsFlags = tflags
+    , tcsOSSA = tossa
+    , tcsCSSA = tcssa
+    , tcsNSSA = tnssa
+    , tcsOentry = toentry
+    , tcsAep = taep
+    , tcsOFSBasSgx = tfsbase
+    , tcsOGSBasSgx = tgsbase
+    , tcsFSLimit   = tfslimit
+    , tcsGSLimit   = tgslimit
+--    , tcsReserved_byte72_4095 = bs
+    }

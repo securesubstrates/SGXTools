@@ -256,7 +256,7 @@ data TCS = TCS {
   , tcsOGSBasSgx             :: Word64
   , tcsFSLimit               :: Word32
   , tcsGSLimit               :: Word32
-  , tcsReserved_byte72_4095  :: L.ByteString
+  --  , tcsReserved_byte72_4095  :: B.ByteString
   }
 
 data TCSFlags = TCSFlags {

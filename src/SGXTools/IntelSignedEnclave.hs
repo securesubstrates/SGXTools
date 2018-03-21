@@ -22,7 +22,7 @@ import           SGXTools.Marshalling
 import           SGXTools.Utils (toHexRep)
 import           Data.Binary
 import           Data.Binary.Put
-import           Data.Binary.Get (runGetOrFail)
+import           Data.Binary.Get (runGetOrFail, runGet)
 import           Data.Bits
 import           Data.ElfEdit
 import           Text.Printf (printf, PrintfArg)
@@ -631,7 +631,7 @@ measureConstLayout :: (Monad m, HashAlgorithm h)
                    -> HashState (Context h) m ()
 measureConstLayout
   (LayoutEntry _ ops count rva _ sz d si) = do
-
+  when (E_ADD `notElem` ops) $ return ()
   let
     pageData :: B.ByteString
     pageData = constantPage sz
@@ -649,6 +649,7 @@ measureContentLayout :: (Monad m, HashAlgorithm h)
                      -> HashState (Context h) m ()
 measureContentLayout
   (LayoutEntry _ ops count rva c sz _ si) = do
+  when (E_ADD `notElem` ops) $ return ()
   let
     contentPage :: B.ByteString
     contentPage =
@@ -661,6 +662,37 @@ measureContentLayout
       eextend va contentPage  -- The same page keeps getting added
 
 
+tcsAdjust :: Word64  -- RVA
+          -> B.ByteString -- Input TCS
+          -> B.ByteString -- Adjusted TCS
+tcsAdjust rva bs =
+  let
+    tcs    :: TCS
+    tcs    = runGet getTCS (L.fromChunks [bs])
+    ossa   = tcs `seq` tcsOSSA tcs
+    fsbase = tcs `seq` tcsOFSBasSgx tcs
+    gsbase = tcs `seq` tcsOGSBasSgx tcs
+
+    tcs' = tcs { tcsOSSA      = ossa + rva
+               , tcsOFSBasSgx = fsbase + rva
+               , tcsOGSBasSgx = gsbase + rva
+               }
+  in L.toStrict $! runPut $! putTCS tcs'
+
+
+measureTCS :: (Monad m, HashAlgorithm h)
+           => LayoutEntry  -- TCS Layout
+           -> Word64       -- RVA
+           -> HashState (Context h) m ()
+measureTCS le rva =
+  let
+    c = tcsAdjust rva (lentryContent le)
+  in measureContentLayout $! le{
+    lentryContent = c
+    , lentryRVA = rva
+    }
+
+
 measureLayout :: (Monad m, HashAlgorithm h)
               => LayoutEntry    -- Layout
               -> Word64         -- extra offset to add
@@ -670,13 +702,21 @@ measureLayout l@(LayoutEntry lid ops _ rva _ _ off perm) rva_shift
   | lid == LAYOUT_ID_ELF_SEGMENT  = return ()
   | perm == []                    = return ()
   | (E_ADD `notElem` ops)         = return ()
-  | off == 0                      = measureConstLayout l{ lentryRVA = rva + rva_shift }
-  | otherwise                     = measureContentLayout l{ lentryRVA = rva + rva_shift }
-measureLayout g@(LayoutGroup _ _ _ _ _) _ = fail ("Cannot process group layout" ++ show g)
+  | (SI_FLAG_TCS `elem` perm)     =
+      measureTCS l (rva + rva_shift)
+  | off == 0                      =
+    measureConstLayout l{lentryRVA=rva + rva_shift}
+  | otherwise                     =
+    measureContentLayout l{lentryRVA=rva + rva_shift}
+
+measureLayout g@(LayoutGroup _ _ _ _ _) _ =
+  fail ("Cannot process group layout" ++ show g)
 
 
-numberEntry :: [LayoutEntry] -> V.Vector (Word16, LayoutEntry)
-numberEntry ls = V.fromList $! zipWith (\ i l -> (i, l)) [0..] ls
+numberEntry :: [LayoutEntry]
+            -> V.Vector (Word16, LayoutEntry)
+numberEntry ls = V.fromList $!
+                 zipWith (\ i l -> (i, l)) [0..] ls
 
 
 measureLayouts :: (Monad m, HashAlgorithm h)
@@ -685,12 +725,13 @@ measureLayouts = do
   nl <- fmap numberEntry (readMeta metaLayouts)
   forM_ nl $ \(index, layout) -> do
     case layout of
-      (LayoutGroup lid count time step _) -> do
+      (LayoutGroup lid count time step _) -> do {
         forM_ [0..time-1] $ \ i -> do
           forM_ [index-count .. index-1] $ \j -> do
             let entry = snd $ nl V.! (fromIntegral j)
-            let shift = step * fromIntegral i
+            let shift = step * fromIntegral (i + 1)
             measureLayout entry shift
+        }
       _ -> measureLayout layout 0
 
 
@@ -713,13 +754,15 @@ patchOne p bs =
     c2 = B.drop (fromIntegral
                  (patchDest p +
                    fromIntegral (patchSize p))) bs
-  in B.concat $! [c0, c1, c2]
+  in B.concat $! [c0 `seq` c0
+                 , c1 `seq` c1
+                 , c2 `seq` c2]
 
 
 patchImage :: B.ByteString
            -> [PatchEntry]
            -> B.ByteString
-patchImage bs pd = foldr (\ p b -> patchOne p b) bs pd
+patchImage = foldr patchOne
 
 
 measureEnclave64 :: Elf 64
