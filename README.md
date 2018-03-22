@@ -40,6 +40,7 @@ Usage: sgxTools COMMAND
   Available commands:
     measure                  Recompute mrenclave
     metaInfo                 Display enclave metadata layout
+    sigStruct                Display contents of a CSS File
     einitInfo                Display EINIT token information
     hexdump                  Convert binary file to hex
     version                  Display Program Version
@@ -47,6 +48,10 @@ Usage: sgxTools COMMAND
 ```
 
 ## measure
+
+Measure re-computes the MRENCLAVE based on the layout given
+in the enclave. This is useful for independently computing
+the MRENCLAVE without using Intel provided tools.
 
 ```
 $ ./dist/build/sgxTools/sgxTools measure -h
@@ -68,6 +73,11 @@ MRENCLAVE : 0x8b659cf36fbd3b8a9077fefd64bfddf61ba391101db525bd1159ab5324c3dc9c
 ```
 
 ## metaInfo
+
+Each Intel Signed Enclave has an ELF Note that contains
+information about the layout of the enclave in memory. This
+command prints various information about the enclave layout
+in memory.
 
 ```
 $ ./dist/build/sgxTools/sgxTools metaInfo -h
@@ -307,6 +317,66 @@ $ ./dist/build/sgxTools/sgxTools metaInfo -i /opt/intel/sgxpsw/aesm/libsgx_le.si
       Content : "0000"
 
     }]
+
+}
+```
+
+# sigStruct
+
+This command is smilar to metaInfo, except it prints the
+contents of SigStruct that might be stored in a seperate
+file. One reason for doing this is to allow an HSM (Which
+might be on an air-gapped network) to sign the enclave
+(although it's unclear why computing MRENCLAVE outside of an
+HSM is acceptable!!!).
+
+```
+$ ./dist/build/sgxTools/sgxTools sigStruct -h
+Invalid option `-h'
+
+Did you mean one of these?
+    -i
+    -c
+
+Usage: sgxTools sigStruct (-i|--sig-struct SIGSTRUCT .bin FILENAME)
+                          [-c|--nocolor]
+                          Display contents of a CSS File
+
+```
+
+Actual run of the command
+
+
+```
+$ ./dist/build/sgxTools/sgxTools sigStruct -i /opt/intel/sgxpsw/aesm/le_prod_css.bin
+{
+  Vendor           : Intel
+  Build Date       : 22-Jan-2018
+  Product ID       : 32
+  Software Version : 1
+  MrEnclave        : 0x8b659cf36fbd3b8a9077fefd64bfddf61ba391101db525bd1159ab5324c3dc9c
+  Misc Select      : MiscSelect {miscExInfo = False, miscReserved_bit1_32 = 0}
+  Misc Mask        : MiscSelect {miscExInfo = True, miscReserved_bit1_32 = 0}
+  Attributes       :
+    {
+      DEBUG         : False
+      MODE64        : True
+      PROVISION_KEY : False
+      LAUNCH_KEY    : True
+      XFRM          :
+        {
+          XFRM Enabled    : True
+          XCR0            : 3
+          XSAVE available : False
+
+        }
+
+    }
+  RSA exponent     : 3
+  RSA Modulus      : 0xb78adbb6f40abfc3ff5a8397ab07866d6e762c7a66588d4d0fff8511e4581d866716641ae310c942127233ec388c94d1f189780a424f5632c7af77bea3f50a21f3008276f8bdeec7aa9f6fe6c765437fd82d8e88d29e248dcefa2b208c5b2bb473e06bc735937da11b8e1b2c46d1f77f5ed84218ab0c8adb100a89910d1874ed2729ef58e8c769c35c98651ac84446ecdcbdfe7da32eb51ae304a324effbe83168ebb8720c8c58261fb242f38cafa73b43438c8c1aa652fb07e996eb35b04877ee610b06aae14e3ea14e4118d22d098b75106d6167ca1447361c4b03eec25767d0049609dfb8fe6bd53252adfd875871711a85028681fdaff6a9b6fc8126bb2505e727fc29f55743f06c7aa2cdf523aadef55dbdd486d7bb5b65cb31e4fa5dfa2876558fad80a500f16d85a9f8d7f39b38dd4dbdc2e5b8f997ca145c18777a5181e8a3fa5345e444d573ba01d846dde55b06cae93eeaa843c22aa09ab9337b7b4d4b454ac8c7cb1b5866a8538f03c1ea208c79e2e54d76d01c09d9d7d1de479f
+  RSA Signature    : 0x396123bc68bae29c07065586d1b438ed3d977e34b215efc099db28781c2bc08ac484c5c88cb1b4bf29c9af4ac1ad84c72d70928df51554fecc91548e5a02483cd046f212bd457e39f1a4b2a8d42fbb0eab68fc8740b2964258f37b15231147a2003522956feb7ba6c675ae574ec377fbe3a4ed65842968d55c212203707a86690842c2cc865f5030878099528ba51d42f3bd33a3dc13e55eebf0561a50d23db5b2d964bb3c026cc4eb2d51262d643982fe36cd53dce1d2b877415e3030e691dfe1729286f68873039152c742826371f661006731e630b1c22098f49a1202f4aba028fcd200dece0cf6063d7780e6eb63eccfd1db69ee4dc4a7a412968768603d866041e4178ac5c58408ada4d8fe1260ff3920308a194f0601d00c0a149d2b405640add2b35c4d53aca9b030231d6ae99c244fccd3fb0b67ba1cb1b84b2194ab30cde8daffc9a9c7525b7657ab49c92c5af8f22b8fcee8f9e8e0a7d4fe46921ef5bc05178452e8eeb34eeddd41a967fb35db5f59cc070d3cb2af603badef6ff5
+  RSA Q1           : 0x11f0270ef2270b24733d1411fb38fd6fcfc3316817b87cac0e52c0915e0ba6d0cddb349a91037a2bfbfea020f605cf80b79ed5a2b2e94d1e3f5dce0c5f9932f75dc8ee2e4006cbaf721ad48dd5a71d757e3d2c02c76d7f38ea688550895bdcd928dbd6924f70b8a859a17029f0a68e1e58218b1ab2384cdc9b6d82657b623edc5be403d42ef7bda459661c3d917737f9bee9d244b6172827e5e7a1b885892a7fa087310dbaf4e182c60324d45ff93bc1b66300cd7062ad6ba923717fee2b5607305a7a7b7ca8830c662023668958a2ae63f155a55ae39aa28f0e918f56a726a46541b60ce44225e7cf68efbe801b2b0673809462aa52deee40a96b19c225fad84db87cfc71cddfb67c60327a3d8e0e45c6cabdc4901c9df54a16bb9249405ada9d6e29fb12af2e455a65be0a4c6e6cf787bc4a401d56a20b645954393816b36611d27be6d4059650093c0821a1459ea22407cbce043465ffbb97ddc885ece43af0383981066768d9312e6e9b7404af11d1da36e1a509ff8b99e9d216cb4a561f
+  RSA Q2           : 0x35d97bbce3548f3b3e4075170cf76bde6dc4695ac9b930c5f211e35a558d340b3363ffd87984ec5f0ef9b2c4ae76e4a7e20ef9a48e4c057347af9452a029df9ded3973039e42ee6f7f13ca0df27776687f9fba27454d78d72cdb9ddeaf95e1219018212a2db69f292c25a1e82ea64f8d8b15956b7384ddab123998625b2ce1285ad4aa19f27caba1f6659436857865728deb0bcad1804a87e6be208ca7c14b6d510fabb77543cc35ed5e2cf629a73c2d374df31ae15529b53118fe6249bf7b27d47794829fb9dcf3e246add3feb3e2f6ead6a52f446db59bb66862fe7a7eb49201d74124cf9fa6979ff24b6900da5219e8e4d2768ba9f6ceb8cafcfdb82125f567ade85f8c3b7d3aebb42c0d8b68d3dbf87a0c48169d20a67ee876329fd919df4fba9d8ecdd1b9f2ebe4143b874e548c681de1cc7d49757d321a803bf2e74fe40da0830dd22252891d0c942bab843affd1d27391c6599486719066a01f0cd092d231e9eef8d975b298d5853c8909c2fdaaaee31bbcac86737fe5fcd381f90edd
 
 }
 ```
