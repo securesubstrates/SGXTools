@@ -103,7 +103,7 @@ totalParser :: Parser SGXToolsOpts
 totalParser = subparser $
   command "measure" measureOpts
   <> command "metaInfo" elfOpts
-  <> command "sigstruct" cssOpts
+  <> command "sigStruct" cssOpts
   <> command "einitInfo" einitOpts
   <> command "hexdump" hexOpts
   <> command "version" versionOpts
