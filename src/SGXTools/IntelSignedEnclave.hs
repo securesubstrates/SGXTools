@@ -35,6 +35,12 @@ data SGXELFError = SGXELFError String deriving (Show)
 sgx_metadata_name :: B.ByteString
 sgx_metadata_name = "sgx_metadata\0"
 
+parseSigStruct :: B.ByteString -> Either SGXELFError SigStruct
+parseSigStruct bs = case runGetOrFail getSigStruct (L.fromChunks [bs]) of
+  Left  (_, _, e)   -> Left $ SGXELFError e
+  Right (_, _, css) -> Right css
+
+
 getEnclaveMetadataRaw :: Elf w -> Either SGXELFError B.ByteString
 getEnclaveMetadataRaw e = case allNotes e of
   Left  s     -> Left (SGXELFError s)

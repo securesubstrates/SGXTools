@@ -33,6 +33,8 @@ showLaunchToken :: Bool
                 -> IO ()
 showLaunchToken c eit = putDoc $! ppEinitToken c eit
 
+showSigStruct :: Bool -> SigStruct -> IO ()
+showSigStruct c = putDoc . ppSigStruct c
 
 main :: IO ()
 main = do
@@ -42,8 +44,15 @@ main = do
     (HexOptions  fn)  -> withFile fn ReadMode hexDump
     (Version     str) -> printVersion str
     (ELFInfo fn l p c) -> withFile fn ReadMode (printElfInfo l p c)
+    (CSSInfo fn c)      -> withFile fn ReadMode (printCSS c)
     (Measure fn)      -> withFile fn ReadMode printMrEnclave
+
   where
+    printCSS :: Bool -> Handle -> IO ()
+    printCSS c fd = do
+      t <- fmap (&& not c) (queryTerminal stdOutput)
+      either showError (showSigStruct t) =<< fmap parseSigStruct (B.hGetContents fd)
+
     printMrEnclave :: Handle -> IO ()
     printMrEnclave fd = do
       either showError showMrEnclave =<< fmap measureEnclave (B.hGetContents fd)
@@ -54,9 +63,9 @@ main = do
                    -> Handle -- Input file handle
                    -> IO ()
     printElfInfo l p c fd = do
-      t <- queryTerminal stdOutput
+      t <- fmap (&& not c) (queryTerminal stdOutput)
       d <- fmap getEnclaveMetadata (B.hGetContents fd)
-      showMetadata l p (not c && t) d
+      showMetadata l p t d
 
     printEinitInfo :: Handle -> IO ()
     printEinitInfo fd = do

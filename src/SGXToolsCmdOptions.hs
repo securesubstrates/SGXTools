@@ -23,15 +23,32 @@ data SGXToolsOpts = Version String
             Bool       {- show layout   -}
             Bool       {- show path     -}
             Bool       {- disable color -}
+  | CSSInfo String     {- Input file    -} -- Show SigStruct info
+            Bool       {- diable color  -}
   | Measure String     {- input file    -} -- Recompute mrenclave
+
+cssParser :: Parser SGXToolsOpts
+cssParser = CSSInfo <$> strOption
+  (long "sig-struct"
+  <> short 'i'
+  <> metavar "SIGSTRUCT .bin FILENAME"
+  <> help "Parse SIGSTRUCT File"
+  )
+  <*> switch (long "nocolor" <> short 'c')
+
+
+cssOpts :: ParserInfo SGXToolsOpts
+cssOpts = info cssParser
+  (progDesc "Display contents of a CSS File")
 
 measureParser :: Parser SGXToolsOpts
 measureParser = Measure <$> strOption
   (long "enclave"
    <> short 'i'
-   <> metavar "ENCLAVE .SO FILENAME"
+   <> metavar "ENCLAVE .so FILENAME"
    <> help "Recompute MrEnclave"
   )
+
 
 measureOpts :: ParserInfo SGXToolsOpts
 measureOpts = info measureParser
@@ -41,7 +58,7 @@ elfInfoParser :: Parser SGXToolsOpts
 elfInfoParser = ELFInfo <$> strOption
   (long "enclave"
   <> short 'i'
-  <> metavar "ENCLAVE .SO FILENAME"
+  <> metavar "ENCLAVE .so FILENAME"
   <> help "Signed enclave .so filename")
   <*> switch (long "print-layout" <> short 'l')
   <*> switch (long "print-patch" <> short 'p')
@@ -86,6 +103,7 @@ totalParser :: Parser SGXToolsOpts
 totalParser = subparser $
   command "measure" measureOpts
   <> command "metaInfo" elfOpts
+  <> command "sigstruct" cssOpts
   <> command "einitInfo" einitOpts
   <> command "hexdump" hexOpts
   <> command "version" versionOpts
