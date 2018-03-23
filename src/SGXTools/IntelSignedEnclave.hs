@@ -239,7 +239,10 @@ ppSigStruct c s = formatKVPDoc c [
   , ("Build Date", show2Doc $! ssBuildDate s)
   , ("Product ID", show2Doc $! ssIsvProdId s)
   , ("Software Version", show2Doc $! ssIsvSvn s)
-  , ("MrEnclave", (boldColor c . text) $! "0x" ++ (toHexRep (ssEnclaveHash s)))
+  , ("MrEnclave", (boldColor c . text) $!
+                  "0x" ++ (toHexRep (ssEnclaveHash s)))
+  , ("MrSigner", (boldColor c . text) $!
+                 "0x" ++ toHexRep (computeMrSigner s))
   , ("Misc Select", show2Doc $! ssMiscSelect s)
   , ("Misc Mask", show2Doc $! ssMiscMask s)
   , ("Attributes", embed $! ppAttributes c $! (ssAttributes s))
@@ -251,6 +254,29 @@ ppSigStruct c s = formatKVPDoc c [
   , ("RSA Q2", text $! hexNumber $! ssQ2 s)
   ]
 
+
+computeMrSigner :: SigStruct       -- Modulus
+                -> L.ByteString  -- MrSigner
+computeMrSigner ss = L.fromChunks [hashValue]
+  where
+    v :: Integer
+    v = (ssModulus ss)
+
+    modLen :: Int
+    modLen = 3072 `div` 8
+
+    extractByte :: Int -> Word8
+    extractByte i =
+      let
+        off = 8*i
+        byte = off `seq` (v `shiftR` off) .&. 0xff
+      in byte `seq` fromIntegral byte
+
+    bytes :: B.ByteString -- always 3072/8 bytes
+    bytes = B.pack $! fmap extractByte [0..modLen-1]
+
+    hashValue :: B.ByteString
+    hashValue = bytes `seq` (BA.convert $! hashWith SHA256 bytes)
 
 ppDataDirectory :: Bool -- color
                 -> DataDirectory

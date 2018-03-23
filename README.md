@@ -143,6 +143,7 @@ $ ./dist/build/sgxTools/sgxTools metaInfo -i /opt/intel/sgxpsw/aesm/libsgx_le.si
       Product ID       : 32
       Software Version : 1
       MrEnclave        : 0x8b659cf36fbd3b8a9077fefd64bfddf61ba391101db525bd1159ab5324c3dc9c
+      MrSigner         : 0x494a7e7138d5985fe6c8b126c7914718f895b6622f04eef8ae8fd2d3d332c6d4
       Misc Select      : MiscSelect {miscExInfo = False, miscReserved_bit1_32 = 0}
       Misc Mask        : MiscSelect {miscExInfo = True, miscReserved_bit1_32 = 0}
       Attributes       :
@@ -355,6 +356,7 @@ $ ./dist/build/sgxTools/sgxTools sigStruct -i /opt/intel/sgxpsw/aesm/le_prod_css
   Product ID       : 32
   Software Version : 1
   MrEnclave        : 0x8b659cf36fbd3b8a9077fefd64bfddf61ba391101db525bd1159ab5324c3dc9c
+  MrSignger        : 0xacb77012053e05a63d413b8bbae8fb6c5d73b3f2996d91c43bbbf90959c0f8d4
   Misc Select      : MiscSelect {miscExInfo = False, miscReserved_bit1_32 = 0}
   Misc Mask        : MiscSelect {miscExInfo = True, miscReserved_bit1_32 = 0}
   Attributes       :
