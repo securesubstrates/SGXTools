@@ -168,15 +168,31 @@ toTCSPolicy w | w == 0    = TCS_POLICY_BIND
               | w == 1    = TCS_POLICY_UNBIND
               | otherwise = undefined
 
+xfrmToFlags :: XFRM -> [XFRMFlags]
+xfrmToFlags h@(XFRM _ w _)
+  | w         == 0 = []
+  | (w .&. 1) /= 0 = X87 : xfrmToFlags h{xfrmXCR0 = w .&. complement 1}
+  | (w .&. 2) /= 0 = SSE : xfrmToFlags h{xfrmXCR0 = w .&. complement 2}
+  | (w .&. 4) /= 0 = AVX : xfrmToFlags h{xfrmXCR0 = w .&. complement 4}
+  | (w .&. 0x18) /= 0 = MPX : xfrmToFlags h{xfrmXCR0 = w .&. complement 0x18}
+  | (w .&. 0xe0) /= 0 = AVX512 : xfrmToFlags h{xfrmXCR0 = w .&. complement 0xe0}
+  | otherwise         = []
+
 ppXFRM :: Bool -- use color
        -> XFRM
        -> Doc
 ppXFRM c xfrm = formatKVPDoc c kvps
   where
+    xcr0Doc :: XFRM -> Doc
+    xcr0Doc (XFRM _ w _) =
+      let f = (xfrmToFlags xfrm)
+      in case f of
+        [] -> text  (hexNumber w)
+        _  -> list (fmap (\x -> show2Doc x) (xfrmToFlags xfrm))
     kvps = [
       ("XFRM Enabled", show2Doc $! xfrmEnabled xfrm)
-      , ("XCR0", show2Doc $! xfrmXCR0 xfrm)
-      , ("XSAVE available", show2Doc $! xfrmHasXSave xfrm)
+       , ("XSAVE available", show2Doc $! xfrmHasXSave xfrm)
+       , ("XCR0", xcr0Doc xfrm)
       ]
 
 tabWidth :: Int

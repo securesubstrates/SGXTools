@@ -43,6 +43,14 @@ data Attributes = Attributes {
   , attrXFRM              :: XFRM -- See XFRM data type
   }deriving(Eq, Show)
 
+data XFRMFlags = X87      -- 0x1
+               | SSE      -- 0x2
+               | AVX      -- 0x4
+               | AVX512   -- 0xE0
+               | MPX      -- 0x18
+               | XFRMFlagUnknown Word64
+               deriving(Show)
+
 data XFRM = XFRM {
   xfrmEnabled  :: Bool
   , xfrmXCR0  :: Word64    -- Valid value of XCR0
