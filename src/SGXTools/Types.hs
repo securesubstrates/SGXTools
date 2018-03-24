@@ -1,13 +1,15 @@
 module SGXTools.Types where
 
-import Text.Printf
+import           SGXTools.Utils
+import           Text.Printf
+import           Data.Foldable (foldr')
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString      as B
 import           Data.Word (Word64, Word32, Word16, Word8)
 import           Data.Bits ((.&.), (.|.),
                             shiftL, shiftR,
                             Bits(..))
-import           SGXTools.Utils
+
 
 data SECS = SECS {
   secsSize                    :: Word64        -- Size of enclave in bytes; must be power of 2
@@ -554,7 +556,7 @@ extractFlags w = extractOpts w 0 [] where
 encodeFlags :: (Enum a, Integral b, Bits b)
             => [a]
             -> b
-encodeFlags = foldr (\ x y -> shiftL 1 (fromEnum x) .|. y) 0
+encodeFlags = foldr' (\ x y -> shiftL 1 (fromEnum x) .|. y) 0
 {-# INLINE encodeFlags #-}
 
 instance Enum LayoutOperations where

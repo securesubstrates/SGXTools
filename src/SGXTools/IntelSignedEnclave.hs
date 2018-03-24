@@ -27,6 +27,7 @@ import           Data.Bits
 import           Data.ElfEdit
 import           Text.Printf (printf, PrintfArg)
 import           Text.PrettyPrint.ANSI.Leijen
+import           Data.Foldable (foldr')
 -- import           Debug.Trace
 
 
@@ -149,11 +150,11 @@ formatKVPDoc c xs =
                        in if l > old
                           then l
                           else old
-    max_key_len = foldr lenMax 0 xs
+    max_key_len = foldr' lenMax 0 xs
     paddedStr (key, value) = (fill max_key_len ((keyColor c . text) key)) <+>
                              colon <+> value
     innerDoc =
-      foldr (\(k,v) ->
+      foldr' (\(k,v) ->
                 \y -> paddedStr (k, v) <> linebreak <> y) empty xs
   in
     lbrace                <>
@@ -794,7 +795,7 @@ patchOne p bs =
 patchImage :: B.ByteString
            -> [PatchEntry]
            -> B.ByteString
-patchImage = foldr patchOne
+patchImage = foldr' patchOne
 
 
 measureEnclave64 :: Elf 64
