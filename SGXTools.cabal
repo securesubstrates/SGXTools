@@ -22,6 +22,7 @@ executable sgxTools
                      , SGXTools.Marshalling
                      , SGXTools.IntelSignedEnclave
                      , SGXTools.Utils
+                     , SGXTools.WhiteList
   ghc-options: -O2
   -- other-extensions:
   build-depends:       base       >=4.10 && <4.11

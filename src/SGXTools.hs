@@ -2,6 +2,7 @@ module Main where
 
 import System.Posix.Terminal (queryTerminal)
 import System.Posix.IO (stdOutput)
+import SGXTools.WhiteList
 import SGXTools.Types
 import SGXTools.Utils
 import SGXTools.Marshalling
@@ -40,18 +41,22 @@ main :: IO ()
 main = do
   o <- commandOptions
   case o of
-    (EinitOption fn)  -> withFile fn ReadMode printEinitInfo
-    (HexOptions  fn)  -> withFile fn ReadMode hexDump
-    (Version     str) -> printVersion str
+    (EinitOption fn)   -> withFile fn ReadMode printEinitInfo
+    (HexOptions  fn)   -> withFile fn ReadMode hexDump
+    (Version     str)  -> printVersion str
     (ELFInfo fn l p c) -> withFile fn ReadMode (printElfInfo l p c)
-    (CSSInfo fn c)      -> withFile fn ReadMode (printCSS c)
-    (Measure fn)      -> withFile fn ReadMode printMrEnclave
-
+    (CSSInfo fn c)     -> withFile fn ReadMode (printCSS c)
+    (Measure fn)       -> withFile fn ReadMode printMrEnclave
+    (WLInfo fn c)      -> withFile fn ReadMode printWhiteList
   where
     printCSS :: Bool -> Handle -> IO ()
     printCSS c fd = do
       t <- fmap (&& not c) (queryTerminal stdOutput)
       either showError (showSigStruct t) =<< fmap parseSigStruct (B.hGetContents fd)
+
+    printWhiteList :: Handle -> IO ()
+    printWhiteList fd = do
+      either showWlError print =<< fmap parseWhiteList (L.hGetContents fd)
 
     printMrEnclave :: Handle -> IO ()
     printMrEnclave fd = do
@@ -83,3 +88,6 @@ main = do
 
     showError :: SGXELFError -> IO ()
     showError (SGXELFError m) = putStrLn $ "Error: " ++ m
+
+    showWlError :: SGXWhiteListError -> IO ()
+    showWlError (SGXWhiteListError m) = putStrLn $ "Error: " ++ m

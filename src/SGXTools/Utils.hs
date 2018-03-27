@@ -12,6 +12,7 @@ import Data.Bits       (unsafeShiftL, unsafeShiftR, (.|.) , (.&.))
 import Data.Word       (Word8)
 import Data.Foldable   (foldr')
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString      as B
 
 toHexRep :: L.ByteString -> String
 toHexRep bs = concatMap toHexStr (L.unpack bs)
@@ -39,11 +40,11 @@ integerToBSle = L.pack . reverse . integer2word8 []
 integerToBSbe :: Integer -> L.ByteString
 integerToBSbe = L.pack . integer2word8 []
 
-leBSToInteger :: L.ByteString -> Integer
-leBSToInteger = foldr' (\x -> \y -> (y `unsafeShiftL` 8) .|. (fromIntegral x)) 0x0 . L.unpack
+leBSToInteger :: B.ByteString -> Integer
+leBSToInteger = foldr' (\x y -> (y `unsafeShiftL` 8) .|. (fromIntegral x)) 0x0 . B.unpack
 
-beBSToInteger :: L.ByteString -> Integer
-beBSToInteger = foldr' (\x -> \y -> (y `unsafeShiftL` 8) .|. (fromIntegral x)) 0x0 . reverse . L.unpack
+beBSToInteger :: B.ByteString -> Integer
+beBSToInteger = foldr' (\x y -> (y `unsafeShiftL` 8) .|. (fromIntegral x)) 0x0 . reverse . B.unpack
 
 integer2word8 :: [Word8] -> Integer -> [Word8]
 integer2word8 x 0 = x

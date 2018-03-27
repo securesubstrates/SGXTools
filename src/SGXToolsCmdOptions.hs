@@ -24,8 +24,23 @@ data SGXToolsOpts = Version String
             Bool       {- show path     -}
             Bool       {- disable color -}
   | CSSInfo String     {- Input file    -} -- Show SigStruct info
-            Bool       {- diable color  -}
+            Bool       {- disable color -}
   | Measure String     {- input file    -} -- Recompute mrenclave
+  | WLInfo  String     {- whitelist file -}
+            Bool       {- disable color -}
+
+wlInfoParser :: Parser SGXToolsOpts
+wlInfoParser = WLInfo <$> strOption
+  (long "wlfile"
+  <> short 'i'
+  <> metavar "WHITELIST .bin FILE"
+  <> help "Parse Intel created White list file"
+  )
+  <*> switch (long "nocolor" <> short 'c')
+
+wlInfoOpts :: ParserInfo SGXToolsOpts
+wlInfoOpts = info wlInfoParser
+  (progDesc "Display Whitelist Information")
 
 cssParser :: Parser SGXToolsOpts
 cssParser = CSSInfo <$> strOption
@@ -101,9 +116,10 @@ einitOpts = info einitParser
 
 totalParser :: Parser SGXToolsOpts
 totalParser = subparser $
-  command "measure" measureOpts
-  <> command "metaInfo" elfOpts
+  command "metaInfo" elfOpts
   <> command "sigStruct" cssOpts
+  <> command "whitelist" wlInfoOpts
+  <> command "measure" measureOpts
   <> command "einitInfo" einitOpts
   <> command "hexdump" hexOpts
   <> command "version" versionOpts
