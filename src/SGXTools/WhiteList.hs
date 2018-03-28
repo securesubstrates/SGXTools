@@ -14,10 +14,10 @@ module SGXTools.WhiteList(
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as L
 import qualified Data.Binary.Get         as G
-import qualified Crypto.PubKey.RSA       as RSA
-import qualified Crypto.PubKey.ECC.P256  as P256
-import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.ECC.Types as EC
+import qualified Crypto.PubKey.RSA       as RSA
+import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
+
 import           Data.Word
 import           Data.Bits
 import           Data.Foldable (foldr')
@@ -32,11 +32,7 @@ fromLEBytes lst =
 {-# INLINE fromLEBytes #-}
 
 fromBEBytes :: [Word8] -> Integer
-fromBEBytes lst =
-  foldr' (\x !y -> let x' :: Integer
-                       x' = fromIntegral x
-                   in (x' `shiftL` 8) .|. y ) 0 lst
-{-# INLINE fromBEBytes #-}
+fromBEBytes = fromLEBytes . reverse
 
 g_wl_root_pubkey_x :: Integer
 g_wl_root_pubkey_x = fromLEBytes [ -- see linux-sdk/psw/ae/data/constants/linux/wl_pub.hh
@@ -62,15 +58,15 @@ g_wl_root_pubkey_y = fromLEBytes [
   , 0xca, 0x11, 0x7e, 0xb6
   ]
 
-g_wl_root_pubkey :: P256.Point
-g_wl_root_pubkey = P256.pointFromIntegers (
-  g_wl_root_pubkey_x, g_wl_root_pubkey_y)
+g_wl_root_pubkey :: EC.Point
+g_wl_root_pubkey = EC.Point
+  g_wl_root_pubkey_x g_wl_root_pubkey_y
 
 
 data WLCertChainIntel = WLCertChainIntel {
   wlcProviderCert    :: !WLProviderCertIntel
   , wlcCert          :: !WLCertIntel
-  , wlcLEBakedPubKey :: !P256.Point
+  , wlcLEBakedPubKey :: !EC.Point
   } deriving (Show)
 
 
@@ -79,7 +75,7 @@ data WLProviderCertIntel = WLProviderCertIntel {
   , wlpCertType   :: !Word16 -- Type of signer
   , wlpProviderId :: !Word16 -- ID assigned by the White List Root CA.
   , wlpRootID     :: !Word16 -- White List Root CA key
-  , wlpPubKey     :: !P256.Point   -- Provider's public key
+  , wlpPubKey     :: !EC.Point   -- Provider's public key
   , wlpSignature  :: !ECDSA.Signature
   }deriving(Show)
 
@@ -137,18 +133,13 @@ getECCSig = do
   (EC.Point x y) <- getPoint
   return $! ECDSA.Signature x y
 
-getP256Point :: G.Get P256.Point
-getP256Point = do
-  (EC.Point x y) <- getPoint
-  return $! P256.pointFromIntegers (x, y)
-
 getWLProviderCertIntel :: G.Get WLProviderCertIntel
 getWLProviderCertIntel = do
   !wlpVer   <- G.getWord16be
   !certType <- G.getWord16be
   !provId   <- G.getWord16be
   !rootId   <- G.getWord16be
-  !point    <- getP256Point
+  !point    <- getPoint
   !sig      <- getECCSig
   return $! WLProviderCertIntel {
     wlpVersion      = wlpVer
@@ -253,5 +244,5 @@ parseIntelWhiteList :: L.ByteString
                     -> Either SGXWhiteListError WLCertChainIntel
 parseIntelWhiteList bs =
   case G.runGetOrFail getWLCertChainIntel bs of
-    Left(_, _, e) -> Left $! SGXWhiteListError e
+    Left(_, _, e)   -> Left  $! SGXWhiteListError e
     Right(_, _, wl) -> Right $! wl
