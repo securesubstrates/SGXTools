@@ -2,6 +2,7 @@
 
 module SGXTools.WhiteList(
   parseWhiteList
+  , parseIntelWhiteList
   , SGXWhiteListError(..)
   , WhiteList(..)
   , WhiteListEntry (..)
@@ -16,6 +17,7 @@ import qualified Data.Binary.Get         as G
 import qualified Crypto.PubKey.RSA       as RSA
 import qualified Crypto.PubKey.ECC.P256  as P256
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
+import qualified Crypto.PubKey.ECC.Types as EC
 import           Data.Word
 import           Data.Bits
 import           Data.Foldable (foldr')
@@ -68,8 +70,7 @@ g_wl_root_pubkey = P256.pointFromIntegers (
 data WLCertChainIntel = WLCertChainIntel {
   wlcProviderCert    :: !WLProviderCertIntel
   , wlcCert          :: !WLCertIntel
-  , wlcProviderValid :: !Bool
-  , wlcLEBakedPubKey :: P256.Point
+  , wlcLEBakedPubKey :: !P256.Point
   } deriving (Show)
 
 
@@ -79,8 +80,9 @@ data WLProviderCertIntel = WLProviderCertIntel {
   , wlpProviderId :: !Word16 -- ID assigned by the White List Root CA.
   , wlpRootID     :: !Word16 -- White List Root CA key
   , wlpPubKey     :: !P256.Point   -- Provider's public key
-  , wlpSign       :: !ECDSA.Signature
+  , wlpSignature  :: !ECDSA.Signature
   }deriving(Show)
+
 
 data WLCertIntel = WLCertIntel {
   wlCertVersion      :: !Word16
@@ -88,8 +90,10 @@ data WLCertIntel = WLCertIntel {
   , wlCertProviderId :: !Word16 -- Enclave Signing Key White List Provider ID
   , wlCertLEProdId   :: !Word16 -- Launch Enclave ProdID the White List Cert applies to. Linux LE-ProdID = 0x20
   , wlCertSignKeyVer :: !Word32
+  , wlCertCount      :: !Word32
   , wlCertMrSigners  :: [B.ByteString] -- list of mrsigners
   } deriving(Show)
+
 
 data WhiteList = WhiteList {
     wlFileVersion :: !Word16
@@ -106,6 +110,85 @@ data WhiteListEntry = WhiteListEntry {
   , wleMrEnclave      :: B.ByteString
   , wleMrSigner       :: B.ByteString
   }deriving(Show)
+
+
+getWLCertChainIntel :: G.Get WLCertChainIntel
+getWLCertChainIntel = do
+  !prov  <- getWLProviderCertIntel
+  !certs <- getWLCertIntel
+  return $! WLCertChainIntel{
+    wlcProviderCert = prov
+    , wlcCert = certs
+    , wlcLEBakedPubKey = g_wl_root_pubkey
+    }
+
+
+getPoint :: G.Get EC.Point
+getPoint = do
+  px <- G.getByteString 32
+  py <- G.getByteString 32
+  let
+    pxInt = fromBEBytes $ B.unpack px
+    pyInt = fromBEBytes $ B.unpack py
+  return $! EC.Point pxInt pyInt
+
+getECCSig :: G.Get ECDSA.Signature
+getECCSig = do
+  (EC.Point x y) <- getPoint
+  return $! ECDSA.Signature x y
+
+getP256Point :: G.Get P256.Point
+getP256Point = do
+  (EC.Point x y) <- getPoint
+  return $! P256.pointFromIntegers (x, y)
+
+getWLProviderCertIntel :: G.Get WLProviderCertIntel
+getWLProviderCertIntel = do
+  !wlpVer   <- G.getWord16be
+  !certType <- G.getWord16be
+  !provId   <- G.getWord16be
+  !rootId   <- G.getWord16be
+  !point    <- getP256Point
+  !sig      <- getECCSig
+  return $! WLProviderCertIntel {
+    wlpVersion      = wlpVer
+    , wlpCertType   = certType
+    , wlpProviderId = provId
+    , wlpRootID     = rootId
+    , wlpPubKey     = point
+    , wlpSignature  = sig
+    }
+
+
+getMrSigners :: G.Get [B.ByteString]
+getMrSigners = do
+  consumed <- G.isEmpty
+  if consumed
+    then return []
+    else do
+      signer <- G.getByteString 32
+      rest   <- getMrSigners
+      return $! (signer : rest)
+
+
+getWLCertIntel :: G.Get WLCertIntel
+getWLCertIntel = do
+  certVer  <- G.getWord16be
+  certType <- G.getWord16be
+  provId   <- G.getWord16be
+  prodId   <- G.getWord16be
+  keyVer   <- G.getWord32be
+  count    <- G.getWord32be
+  signers  <- getMrSigners
+  return $! WLCertIntel {
+    wlCertVersion      = certVer
+    , wlCertType       = certType
+    , wlCertProviderId = provId
+    , wlCertLEProdId   = prodId
+    , wlCertSignKeyVer = keyVer
+    , wlCertCount      = count
+    , wlCertMrSigners  = signers
+    }
 
 
 getRSAPub :: G.Get RSA.PublicKey
@@ -164,4 +247,11 @@ parseWhiteList :: L.ByteString
 parseWhiteList bs =
   case G.runGetOrFail getWhiteList bs of
     Left (_, _, e)  -> Left $! SGXWhiteListError e
+    Right(_, _, wl) -> Right $! wl
+
+parseIntelWhiteList :: L.ByteString
+                    -> Either SGXWhiteListError WLCertChainIntel
+parseIntelWhiteList bs =
+  case G.runGetOrFail getWLCertChainIntel bs of
+    Left(_, _, e) -> Left $! SGXWhiteListError e
     Right(_, _, wl) -> Right $! wl

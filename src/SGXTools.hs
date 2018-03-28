@@ -56,7 +56,7 @@ main = do
 
     printWhiteList :: Handle -> IO ()
     printWhiteList fd = do
-      either showWlError print =<< fmap parseWhiteList (L.hGetContents fd)
+      either showWlError print =<< fmap parseIntelWhiteList (L.hGetContents fd)
 
     printMrEnclave :: Handle -> IO ()
     printMrEnclave fd = do
