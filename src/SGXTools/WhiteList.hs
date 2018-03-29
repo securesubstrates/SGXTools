@@ -83,7 +83,8 @@ ppWLCertChainIntel :: Bool  -- use color!!!
                    -> Doc
 ppWLCertChainIntel c chain =
   formatKVPDoc c [
-  ("Intel Whitelist Provider", ppWLProviderCertIntel c $ wlcProviderCert chain)
+  ("LE Root Pubkey (NIST-P256)", ppP256PubKey $ wlcLEBakedPubKey chain)
+  , ("Intel Whitelist Provider", ppWLProviderCertIntel c $ wlcProviderCert chain)
   , ("Intel Signed Whitelist", ppWLCertIntel c $ wlcCert chain)
   ]
 
@@ -122,8 +123,8 @@ ppP256PubKey (EC.Point x y) =
     yHex :: String
     yHex = printf "0x%x" y
   in
-    parens $! text xHex <> linebreak
-      <> indent 26 (comma <+> (text yHex))
+    encloseSep lparen rparen comma
+      [text xHex, text yHex]
 
 
 ppECDSASig :: ECDSA.Signature

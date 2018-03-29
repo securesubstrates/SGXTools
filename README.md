@@ -38,12 +38,13 @@ Usage: sgxTools COMMAND
     -h,--help                Show this help text
 
   Available commands:
-    measure                  Recompute mrenclave
-    metaInfo                 Display enclave metadata layout
-    sigStruct                Display contents of a CSS File
-    einitInfo                Display EINIT token information
-    hexdump                  Convert binary file to hex
-    version                  Display Program Version
+  metaInfo                 Display enclave metadata layout
+  sigStruct                Display contents of a CSS File
+  whitelist                Display Whitelist Information
+  measure                  Recompute mrenclave
+  einitInfo                Display EINIT token information
+  hexdump                  Convert binary file to hex
+  version                  Display Program Version
 
 ```
 
@@ -319,6 +320,86 @@ $ ./dist/build/sgxTools/sgxTools metaInfo -i /opt/intel/sgxpsw/aesm/libsgx_le.si
 
     }]
 
+}
+```
+
+# whitelist
+
+The Launch Enclave provides access control for which
+enclaves are authorized to run on the platform. The list of
+authorized MRSIGNERS are stored at
+``/var/opt/aesmd/data/white_list_cert.bin`` on Ubuntu. The
+``whitelist`` command prints the contents of the Intel
+Provided Whitelist along with the public-keys needed for
+validating the whitelist. (Note: The LE Root Pubkey is
+hardcoded into intel's Launch Enclave and acts as the root
+of trust for validating Intel Signed Whitelists.)
+
+```
+$ sudo ./dist/build/sgxTools/sgxTools whitelist -i /var/opt/aesmd/data/white_list_cert.bin
+{
+  LE Root Pubkey (NIST-P256) : (0xa9365c4531676d18c2169c60751c0cee8c5fc98fc891173cebd686cb9b1e3929
+                               ,0xb67e11ca81cf287a24444fc98499055e93cce2fee65497ede4da22e10d83095f)
+  Intel Whitelist Provider   : {
+    Format Version         : 1 (0x1)
+    Signer Type            : 0 (0x0)
+    Provider ID            : 0 (0x0)
+    Root ID                : 0 (0x0)
+    Public Key (NIST-P256) : (0x6588088392e73d049df6ced6f2e6963145e189c003fb3a74870b20d32aa8a4a1
+                             ,0x32cf58636a63afd64bf95c6077069b628c3975b60d12e55ad33d9b995990ca6d)
+    Signature (ECDSA)      : (0xb3282271d31ed17528a6ed892f7ae73a5ca1e1bdd1c9fce9a0d39d59c70157e2
+                             ,0x8c9681985e1e6d79eb00684b206beb8a2fa2c44520d5a8df3e8e1f2e8f9298b6)
+
+  }
+  Intel Signed Whitelist     : {
+    Version         : 1 (0x1)
+    Type            : 1 (0x1)
+    Provider ID     : 0 (0x0)
+    LE Product ID   : 32 (0x20)
+    Signer Version  : 30 (0x1e)
+    Valid MRSIGNERS : [ec15b10787d2f84667ceb0b598ffc44a1f1cb80f670aae5df9e8fa9f6376e1f8
+                      ,4be2af036366ebc4176e70a539f00445d9057d9604f8ead3e323f3804a11f9ac
+                      ,c54a62f2be9ef76efb1f3930ad81ea7f60defc1f5f25e09b7c067a815ae0c6cb
+                      ,efa3f510ac0681f3daee287ac2059203ba32b12fbdabb39b793f007417237f09
+                      ,dc8b7ff90724d7327cffec5bc7fa5f15a522b125bb514dd9fee84186d1b785e3
+                      ,aba1fa394253639b89c66f21323feb7e78ad306cfcd05e960601532461705fa1
+                      ,30ba7d1c30d2aa58c7f8022168049c7340ced60e246b24feef82cfae364cfcd1
+                      ,9b08d5fd7caf602e32d075307a27d03654b01d61c47972a67d1b84cd42cff648
+                      ,fb4bab3d6036ac1d730fa83d7366df1dd2dfeac194ef335d6854d8a6c6475542
+                      ,0b04d8a27f2cd7a61d08d16678eb15f241f29a166ae76276013dc43c8631c8d3
+                      ,7a8d18f1399979383fc374e5368fffa9349e693d9c117c6eb255b7210407a6df
+                      ,664e39d07e6f971c0f1db832132504ddd96d048255b977192764a55205f780fc
+                      ,a8bd65b3b05ff4fcf4a5fe75434bbbabc18e4a858c84848a79e5d11eca2670de
+                      ,c6b32fd7eec3490795229bf7cd825b153197c5fca36726dc66a373375d8b9613
+                      ,7db47b3921645c557fcc9bc3c43befd7b09857500646dc9cabb95d1196c9ab79
+                      ,e46a166a5c98d313c323b01259d17bcee9bd369d4011e958742baf52002bee19
+                      ,b69989a6a94fd03dea32002ff326a5ee7aa3cc96daa6435a335c4aff1c9edca7
+                      ,4ef12b8542bdb4d2df74227f476efe949f16ad254ca49498d23f9f76e1875aa7
+                      ,e61cb55da7a0cd5338673189b368dd6092330d0f5c7c58601b4cba9e0765079b
+                      ,37c7e43b1d7188b1726f171fe93dc40a16648fadd6199a9a13097131cc54d06c
+                      ,d519e4254830cc9413e9b230e33e8e65b731c01496ecf113186268aca71c4a70
+                      ,8ebe9b161b194cd050665a4ae100ac79dff8f137bf670566645c27d76509789f
+                      ,0693efa43c4860c9c7d5cf64586f514a2c6ed478a205f3495ad5629c3ba40e2e
+                      ,b6526334ec61a3a71aea09b5b8df171c3b369f877beb2a23a047d595e9f0524b
+                      ,eb77e594e816edef103a09c2ac2b31d35da10c8795e158d351785e295a9c3f9f
+                      ,0261cbccef5146ffd325eb0d074905908acc11a4a234157697d42350f5ec6a7d
+                      ,553b7f4a59439db7781448957396672b29b8741a823fb3765883803b7c73cbb9
+                      ,1c76c2d8d6b23a85dea26055ca2c1dc211f8d92ce9f3dad5d7cff40d9b999ca8
+                      ,004276e6929e3757095c47be73a48b40051212283cbbbd88d1ebf048f62ca522
+                      ,011e42fcfa43368ed5f74957454778e09fa42d7e35aaa6123a4c37a3edf9d688
+                      ,80747c1e6ed0878bee4dec7cfc8270faf6706b233961378117b59e7c9845bb73
+                      ,14b447ae2e924e7002c28f0b7ce8ef98a576a11b2e8a6616b947ca678e7f0dfb
+                      ,511be7f184173808e808d69f9e03f6006cabe3c1c99533765c12510270dea0a6
+                      ,1ba411b5d8b7e39e3c8fe8033a341d8b1d347a25c9d505e9a6d6a49d854269cb
+                      ,1f339ff5754d60e7959cf5c630d1af65bf30b6d7179d25abbc209f5c3d1cb433
+                      ,33f95ee59920523732b1c54cb797c49e0850b63f84fc1f72dba1b2ddca19c6ba
+                      ,ee961a33c36a66d7d35d868a94e8c69dc7d712f302521164295e79b33a84541f
+                      ,dc8b21ac0aab78a2607f59d9856ba71f943dd145e287b2d95d119937058262f5
+                      ,344d44dc0cae243ec0fd627262d6fc93084baa714165d4a2a2c0b8e7bd2f2b21
+                      ,ba0eb9604235552767fb8cbabf72c54d5db699600f2dff12da73ae1e81908480
+                      ,bdd23d8d5c91fcec75fe31f559a36498e4ead0a6fab9de97d9d21fe9ae011f3b]
+
+  }
 }
 ```
 
