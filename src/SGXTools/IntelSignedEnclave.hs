@@ -192,13 +192,13 @@ ppMetadata l p c m = formatKVPDoc c kvps
       [
         ("Magic", text $! hexNumberWidth 8 (metaMagicNum m))
       , ("Version", text $! hexNumberWidth 8 (metaVersion m))
-      , ("Metadata Size", show2Doc $! metaSize m)
+      , ("Metadata Size", dexyNumDoc $! metaSize m)
       , ("Thread Binding", show2Doc $! toTCSPolicy $! metaTCSPolicy m)
       , ("SSA Frame Size", show2Doc $! metaSSAFrameSize m)
       , ("Max Save Buffer", show2Doc $! metaMaxSaveSize m)
       , ("Desired MISC Select", show2Doc $! metaDesiredMiscSel m)
       , ("Minimum Thread Pool", show2Doc $! metaTCSMinPool m)
-      , ("Enclave Size", show2Doc $! metaEnclaveSize m)
+      , ("Enclave Size", dexyNumDoc $! metaEnclaveSize m)
       , ("Enclave Attributes", embed  $! ppAttributes c $! metaAttributes m)
       , ("SigStruct", embed $! ppSigStruct c $! metaEnclaveCSS m)
       --  , ("Layout", embed $! ppLayouts $! (metaLayouts m))
@@ -212,8 +212,8 @@ ppSigStruct :: Bool -- use color
 ppSigStruct c s = formatKVPDoc c [
   ("Vendor", show2Doc $! ssVendor s)
   , ("Build Date", show2Doc $! ssBuildDate s)
-  , ("Product ID", show2Doc $! ssIsvProdId s)
-  , ("Software Version", show2Doc $! ssIsvSvn s)
+  , ("Product ID", hexyNumDoc $! ssIsvProdId s)
+  , ("Software Version", hexyNumDoc $! ssIsvSvn s)
   , ("MrEnclave", (boldColor c . text) $!
                   "0x" ++ (toHexRep (ssEnclaveHash s)))
   , ("MrSigner", (boldColor c . text) $!
@@ -293,8 +293,8 @@ ppLayout c (LayoutEntry id ops count rva co csz coff perm) =
   , ("Layout Ops", show2Doc ops)
   , ("Layout RVA", text $! hexNumber rva)
   , ("Page Count", show2Doc count)
-  , ("Content Size", show2Doc csz)
-  , ("Content Off", show2Doc coff)
+  , ("Content Size", dexyNumDoc csz)
+  , ("Content Off", dexyNumDoc coff)
   , ("Content", show2Doc $ toHexRep $ L.fromChunks [co])
   , ("Permissions", list (fmap (\x -> show2Doc x) perm))
   ]
@@ -327,8 +327,8 @@ ppEinitToken c emd = formatKVPDoc c [
      text $! "0x" ++ (toHexRep (eitMAC emd)))
   , ("Key Diversification",
       text $! "0x" ++ (toHexRep (eitKeyId emd)))
-  , ("Product ID", show2Doc $! eitIsvProdIdLe emd)
-  , ("Software Version", show2Doc $! eitIsvSvnLe emd)
+  , ("Product ID", hexyNumDoc $! eitIsvProdIdLe emd)
+  , ("Software Version", hexyNumDoc $! eitIsvSvnLe emd)
   , ("Debug Enabled", show2Doc $! eitDebug emd)
   , ("CPUSVN", show2Doc $! eitCpuSvnLe emd)
   , ("Enclave Attributes", embed $! ppAttributes c $!

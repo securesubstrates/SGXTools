@@ -7,6 +7,7 @@ module SGXTools.Utils (
   , tabWidth
   , show2Doc
   , hexyNumDoc
+  , dexyNumDoc
   , toBinaryRep       -- Show ByteString as binary string
   , integerToBSle     -- convert Integer into a little endian ByteString
   , integerToBSbe     -- convert Integer into a big endian ByteString
@@ -101,6 +102,18 @@ hexyNumDoc :: (Integral a, Show a, PrintfArg a)
            => a
            -> Doc
 hexyNumDoc num =
+  let
+    hNum :: Doc
+    hNum = text $! (printf "0x%x" num :: String)
+
+    dNum :: Doc
+    dNum = text $! show num
+  in  hNum <+> parens dNum
+
+dexyNumDoc :: (Integral a, Show a, PrintfArg a)
+           => a
+           -> Doc
+dexyNumDoc num =
   let
     hNum :: Doc
     hNum = text $! (printf "0x%x" num :: String)

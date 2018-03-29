@@ -104,10 +104,10 @@ ppWLProviderCertIntel :: Bool -- use color
                       -> Doc
 ppWLProviderCertIntel c i =
   formatKVPDoc c [
-  ("Format Version" , hexyNumDoc $! wlpVersion i)
-  , ("Signer Type" , hexyNumDoc $! wlpCertType i)
-  , ("Provider ID" , hexyNumDoc $! wlpProviderId i)
-  , ("Root ID", hexyNumDoc $! wlpRootID i)
+  ("Format Version" , dexyNumDoc $! wlpVersion i)
+  , ("Signer Type" , dexyNumDoc $! wlpCertType i)
+  , ("Provider ID" , dexyNumDoc $! wlpProviderId i)
+  , ("Root ID", dexyNumDoc $! wlpRootID i)
   , ("Public Key (NIST-P256)", ppP256PubKey $! wlpPubKey i)
   , ("Signature (ECDSA)", ppECDSASig $! wlpSignature i)
   ]
@@ -150,11 +150,11 @@ ppWLCertIntel :: Bool  -- color
               -> Doc
 ppWLCertIntel c d =
   formatKVPDoc c [
-  ("Version", hexyNumDoc $! wlCertVersion d)
-  , ("Type", hexyNumDoc $! wlCertType d)
-  , ("Provider ID", hexyNumDoc $! wlCertProviderId d)
-  , ("LE Product ID", hexyNumDoc $! wlCertLEProdId d)
-  , ("Signer Version", hexyNumDoc $! wlCertSignKeyVer d)
+  ("Version", dexyNumDoc $! wlCertVersion d)
+  , ("Type", dexyNumDoc $! wlCertType d)
+  , ("Provider ID", dexyNumDoc $! wlCertProviderId d)
+  , ("LE Product ID", dexyNumDoc $! wlCertLEProdId d)
+  , ("Signer Version", dexyNumDoc $! wlCertSignKeyVer d)
   , ("Valid MRSIGNERS", list $! fmap measureDoc (wlCertMrSigners d))
   ]
 
