@@ -3,6 +3,12 @@
 module SGXTools.WhiteList(
   parseWhiteList
   , parseIntelWhiteList
+  , ppWLCertChainIntel
+  , ppWLProviderCertIntel
+  , ppP256PubKey
+  , ppECDSASig
+  , ppWLCertIntel
+  , measureDoc
   , SGXWhiteListError(..)
   , WhiteList(..)
   , WhiteListEntry (..)
@@ -17,10 +23,12 @@ import qualified Data.Binary.Get         as G
 import qualified Crypto.PubKey.ECC.Types as EC
 import qualified Crypto.PubKey.RSA       as RSA
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
-
+import           Text.Printf
+import           Text.PrettyPrint.ANSI.Leijen
 import           Data.Word
 import           Data.Bits
 import           Data.Foldable (foldr')
+import           SGXTools.Utils
 
 data SGXWhiteListError =
   SGXWhiteListError String deriving (Show)
@@ -70,6 +78,16 @@ data WLCertChainIntel = WLCertChainIntel {
   } deriving (Show)
 
 
+ppWLCertChainIntel :: Bool  -- use color!!!
+                   -> WLCertChainIntel
+                   -> Doc
+ppWLCertChainIntel c chain =
+  formatKVPDoc c [
+  ("Intel Whitelist Provider", ppWLProviderCertIntel c $ wlcProviderCert chain)
+  , ("Intel Signed Whitelist", ppWLCertIntel c $ wlcCert chain)
+  ]
+
+
 data WLProviderCertIntel = WLProviderCertIntel {
   wlpVersion      :: !Word16 -- Cert format version. Valid version is 1
   , wlpCertType   :: !Word16 -- Type of signer
@@ -78,6 +96,41 @@ data WLProviderCertIntel = WLProviderCertIntel {
   , wlpPubKey     :: !EC.Point   -- Provider's public key
   , wlpSignature  :: !ECDSA.Signature
   }deriving(Show)
+
+
+ppWLProviderCertIntel :: Bool -- use color
+                      -> WLProviderCertIntel
+                      -> Doc
+ppWLProviderCertIntel c i =
+  formatKVPDoc c [
+  ("Format Version" , hexyNumDoc $! wlpVersion i)
+  , ("Signer Type" , hexyNumDoc $! wlpCertType i)
+  , ("Provider ID" , hexyNumDoc $! wlpProviderId i)
+  , ("Root ID", hexyNumDoc $! wlpRootID i)
+  , ("Public Key (NIST-P256)", ppP256PubKey $! wlpPubKey i)
+  , ("Signature (ECDSA)", ppECDSASig $! wlpSignature i)
+  ]
+
+ppP256PubKey :: EC.Point
+             -> Doc
+ppP256PubKey EC.PointO      = text "∞"
+ppP256PubKey (EC.Point x y) =
+  let
+    xHex :: String
+    xHex = printf "0x%x" x
+
+    yHex :: String
+    yHex = printf "0x%x" y
+  in
+    parens $! text xHex <> linebreak
+      <> indent 26 (comma <+> (text yHex))
+
+
+ppECDSASig :: ECDSA.Signature
+           -> Doc
+
+ppECDSASig (ECDSA.Signature x y) =
+  ppP256PubKey  (EC.Point x y)
 
 
 data WLCertIntel = WLCertIntel {
@@ -90,6 +143,23 @@ data WLCertIntel = WLCertIntel {
   , wlCertMrSigners  :: [B.ByteString] -- list of mrsigners
   } deriving(Show)
 
+
+ppWLCertIntel :: Bool  -- color
+              -> WLCertIntel
+              -> Doc
+ppWLCertIntel c d =
+  formatKVPDoc c [
+  ("Version", hexyNumDoc $! wlCertVersion d)
+  , ("Type", hexyNumDoc $! wlCertType d)
+  , ("Provider ID", hexyNumDoc $! wlCertProviderId d)
+  , ("LE Product ID", hexyNumDoc $! wlCertLEProdId d)
+  , ("Signer Version", hexyNumDoc $! wlCertSignKeyVer d)
+  , ("Valid MRSIGNERS", list $! fmap measureDoc (wlCertMrSigners d))
+  ]
+
+measureDoc :: B.ByteString
+           -> Doc
+measureDoc bs = text $ toHexRep $ L.fromChunks [bs]
 
 data WhiteList = WhiteList {
     wlFileVersion :: !Word16

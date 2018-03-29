@@ -37,6 +37,10 @@ showLaunchToken c eit = putDoc $! ppEinitToken c eit
 showSigStruct :: Bool -> SigStruct -> IO ()
 showSigStruct c = putDoc . ppSigStruct c
 
+showWL :: WLCertChainIntel -> IO ()
+showWL chain = putDoc $ ppWLCertChainIntel False chain
+
+
 main :: IO ()
 main = do
   o <- commandOptions
@@ -56,7 +60,7 @@ main = do
 
     printWhiteList :: Handle -> IO ()
     printWhiteList fd = do
-      either showWlError print =<< fmap parseIntelWhiteList (L.hGetContents fd)
+      either showWlError showWL =<< fmap parseIntelWhiteList (L.hGetContents fd)
 
     printMrEnclave :: Handle -> IO ()
     printMrEnclave fd = do

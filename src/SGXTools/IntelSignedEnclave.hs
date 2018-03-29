@@ -19,7 +19,7 @@ import           Control.Monad (replicateM_, forM_, when)
 import           Crypto.Hash
 import           SGXTools.Types
 import           SGXTools.Marshalling
-import           SGXTools.Utils (toHexRep)
+import           SGXTools.Utils
 import           Data.Binary
 import           Data.Binary.Put
 import           Data.Binary.Get (runGetOrFail, runGet)
@@ -119,17 +119,6 @@ getEnclaveMetadata bs =
 hexNumber :: (Integral a, PrintfArg a) => a -> String
 hexNumber x = printf "0x%x" x
 
-keyColor :: Bool  -- Use color
-         -> Doc   -- Input doc
-         -> Doc
-keyColor True  = bold . blue
-keyColor False = id
-
-boldColor :: Bool  -- USe color
-          -> Doc   -- Input doc
-          -> Doc
-boldColor True = bold
-boldColor False = id
 
 hexNumberWidth :: (Integral a, PrintfArg a) => Int -> a -> String
 hexNumberWidth len x = "0x" ++ padding ++ p
@@ -140,28 +129,6 @@ hexNumberWidth len x = "0x" ++ padding ++ p
               then ""
               else take (len - p_len) $ repeat '0'
 
-formatKVPDoc :: Bool  -- Use color
-             -> [(String, Doc)]
-             -> Doc
-formatKVPDoc c xs =
-  let
-    lenMax :: (String, a) -> Int -> Int
-    lenMax (x,_) old = let l = length x
-                       in if l > old
-                          then l
-                          else old
-    max_key_len = foldr' lenMax 0 xs
-    paddedStr (key, value) = (fill max_key_len ((keyColor c . text) key)) <+>
-                             colon <+> value
-    innerDoc =
-      foldr' (\(k,v) ->
-                \y -> paddedStr (k, v) <> linebreak <> y) empty xs
-  in
-    lbrace                <>
-    linebreak             <>
-    indent 2 innerDoc     <>
-    indent (-2) linebreak <>
-    rbrace
 
 toTCSPolicy :: Word32 -> TCS_POLICY
 toTCSPolicy w | w == 0    = TCS_POLICY_BIND
@@ -195,12 +162,6 @@ ppXFRM c xfrm = formatKVPDoc c kvps
        , ("XCR0", xcr0Doc xfrm)
       ]
 
-tabWidth :: Int
-tabWidth = 2
-
-embed :: Doc -> Doc
-embed d = linebreak <> indent tabWidth d
-
 ppAttributes :: Bool -- use color
              -> Attributes
              -> Doc
@@ -214,9 +175,6 @@ ppAttributes c attr = formatKVPDoc c kvps
       , ("LAUNCH_KEY", show2Doc $! attrEinitTokenKey attr)
       , ("XFRM", embed $! ppXFRM c $! attrXFRM attr)
       ]
-
-show2Doc :: (Show a) => a -> Doc
-show2Doc x = text $! show x
 
 ppMetadata :: Bool  -- show layout
            -> Bool  -- Show patch dir
