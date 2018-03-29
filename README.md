@@ -1,6 +1,6 @@
-SGXTools -- Security Tools for Analysizing Intel SGX
+SGXTools -- Security Tools for Analyzing Intel SGX
 
-# Introdction
+# Introduction
 
 sgxTools is a set of utilities for exploring SGX enclave and
 remote attestation.
