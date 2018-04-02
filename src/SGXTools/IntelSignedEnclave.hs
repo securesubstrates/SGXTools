@@ -284,12 +284,18 @@ ppPatches :: Bool
           -> Doc
 ppPatches c = list . fmap (ppPatch c)
 
+
+layoutIdDoc :: LayoutIdentity -> Doc
+layoutIdDoc i = show2Doc i <+> parens dNum
+  where
+    dNum = show2Doc $! fromEnum i
+
 ppLayout :: Bool
          -> LayoutEntry
          -> Doc
 ppLayout c (LayoutEntry id ops count rva co csz coff perm) =
   formatKVPDoc c $! [
-  ("Layout ID", show2Doc id)
+  ("Layout ID", layoutIdDoc id)
   , ("Layout Ops", show2Doc ops)
   , ("Layout RVA", text $! hexNumber rva)
   , ("Page Count", show2Doc count)
