@@ -503,7 +503,7 @@ data LayoutIdentity =
   | LAYOUT_ID_SSA_DYN
   | LAYOUT_ID_STACK_DYN_MAX
   | LAYOUT_ID_STACK_DYN_MIN
-  | LAYOUT_ID_DYNLINK_SIZE
+  | LAYOUT_ID_MMAP
   -- groups
   | LAYOUT_ID_THREAD_GROUP
   | LAYOUT_ID_THREAD_GROUP_DYN
@@ -607,7 +607,7 @@ instance Enum LayoutIdentity where
   fromEnum LAYOUT_ID_STACK_DYN_MAX    = 17
   fromEnum LAYOUT_ID_STACK_DYN_MIN    = 18
   fromEnum LAYOUT_ID_THREAD_GROUP_DYN = groupId 19
-  fromEnum LAYOUT_ID_DYNLINK_SIZE     = 20
+  fromEnum LAYOUT_ID_MMAP          = 4032
   fromEnum (LAYOUT_ID_UNKNOWN x)   = x
 
   toEnum 0 = LAYOUT_ID_ELF_SEGMENT
@@ -628,9 +628,9 @@ instance Enum LayoutIdentity where
   toEnum 16 = LAYOUT_ID_SSA_DYN
   toEnum 17 = LAYOUT_ID_STACK_DYN_MAX
   toEnum 18 = LAYOUT_ID_STACK_DYN_MIN
-  toEnum 20 = LAYOUT_ID_DYNLINK_SIZE
   toEnum x  | groupId 9  == x = LAYOUT_ID_THREAD_GROUP
             | groupId 19 == x = LAYOUT_ID_THREAD_GROUP_DYN
+  toEnum 4032 = LAYOUT_ID_MMAP
   toEnum y  = (LAYOUT_ID_UNKNOWN y)
 
 groupFlag :: Int
