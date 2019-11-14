@@ -187,7 +187,8 @@ metaVerStr w =
 
 validMetaVersion :: [Word64]
 validMetaVersion = [
-  makeMetaVersion 2 3
+  makeMetaVersion 2 4
+  , makeMetaVersion 2 3
   , makeMetaVersion 2 2
   , makeMetaVersion 2 1
   , makeMetaVersion 1 4
